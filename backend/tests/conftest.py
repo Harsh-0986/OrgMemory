@@ -186,7 +186,7 @@ class FakeGraphRepository:
                         to_id=dst.id,
                         to_type=EntityType.SERVICE,
                     )
-                    for src, dst in zip(nodes, nodes[1:])
+                    for src, dst in zip(nodes, nodes[1:], strict=False)
                 ]
                 paths.append(
                     GraphPath(
