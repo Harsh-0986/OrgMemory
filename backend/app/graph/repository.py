@@ -8,6 +8,7 @@ node ids, relationship types, hop counts - is preserved end to end.
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 from typing import Any
@@ -491,6 +492,9 @@ class GraphRepository:
         the services, people and decisions it touched.
         """
         cited = list(dict.fromkeys(cited_ids or []))
+        # FalkorDB properties must be primitives or arrays of primitives, so
+        # the nested metadata dict is stored as JSON text and parsed back on
+        # read (see `get_investigation`).
         props = {
             "id": investigation_id,
             "question": question,
@@ -499,7 +503,7 @@ class GraphRepository:
             "status": status,
             "cited_ids": cited,
             "created_at": utcnow().isoformat(),
-            "metadata": metadata or {},
+            "metadata_json": json.dumps(metadata or {}, default=str),
         }
         _rows(queries.STORE_INVESTIGATION, {"props": props})
 
@@ -539,6 +543,18 @@ class GraphRepository:
         if not rows:
             return None
         props = rows[0].get("props") or {}
+
+        # Metadata is stored as JSON text; tolerate a malformed or absent value.
+        raw_metadata = props.pop("metadata_json", None)
+        try:
+            metadata = json.loads(raw_metadata) if raw_metadata else {}
+        except (json.JSONDecodeError, TypeError):
+            metadata = {}
+        # Tolerate a legacy record that stored a nested map instead.
+        if not metadata and isinstance(props.get("metadata"), dict):
+            metadata = props.pop("metadata")
+        props.pop("metadata", None)
+
         citations = _rows_to_paths(
             _rows(
                 queries.INVESTIGATION_CITATIONS,
@@ -552,7 +568,7 @@ class GraphRepository:
                 if node.id not in seen:
                     seen.add(node.id)
                     cited_nodes.append(node)
-        return {**props, "cited_entities": cited_nodes}
+        return {**props, "cited_entities": cited_nodes, "metadata": metadata}
 
     def recall_investigations(self, terms: str, limit: int = 3) -> list[dict[str, Any]]:
         """Past investigations whose question overlaps the current one.

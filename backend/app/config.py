@@ -60,7 +60,7 @@ class Settings(BaseSettings):
     # -- LLM (NVIDIA NIM, OpenAI-compatible) ------------------------------
     nvidia_api_key: str = ""
     nvidia_base_url: str = "https://integrate.api.nvidia.com/v1"
-    nvidia_model: str = "nvidia/llama-3.1-nemotron-70b-instruct"
+    nvidia_model: str = "nvidia/nemotron-3-super-120b-a12b"
     nvidia_temperature: float = 0.0
     nvidia_max_tokens: int = 2048
 

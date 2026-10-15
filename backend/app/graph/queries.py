@@ -55,11 +55,15 @@ LIMIT $limit
 """
 
 #: The actual dependency paths, so the UI can draw and highlight them.
-DEPENDENCY_PATHS = f"""
-MATCH p = (impacted:Service)-[:DEPENDS_ON*1..{{max_depth}}]->(target:Service {{id: $service_id}})
+#:
+#: A plain string, not an f-string: every slot is filled by `build()` in one
+#: pass. Mixing f-string interpolation with `str.format` yields templates whose
+#: `{id: $service_id}` map literals get mistaken for format placeholders.
+DEPENDENCY_PATHS = """
+MATCH p = (impacted:Service)-[:DEPENDS_ON*1..{max_depth}]->(target:Service {{id: $service_id}})
 RETURN
-  {_NODE_PROJECTION} AS nodes,
-  {_REL_PROJECTION} AS rel_types,
+  {nodes} AS nodes,
+  {rels} AS rel_types,
   length(p) AS depth
 ORDER BY depth ASC
 LIMIT $limit
@@ -249,12 +253,12 @@ ORDER BY count DESC
 LIMIT $limit
 """
 
-GRAPH_NEIGHBORHOOD = f"""
-MATCH p = (entity)-[*1..{{max_depth}}]-(neighbour)
+GRAPH_NEIGHBORHOOD = """
+MATCH p = (entity)-[*1..{max_depth}]-(neighbour)
 WHERE entity.id = $entity_id
 RETURN
-  {_NODE_PROJECTION} AS nodes,
-  {_REL_PROJECTION} AS rel_types,
+  {nodes} AS nodes,
+  {rels} AS rel_types,
   length(p) AS depth
 ORDER BY depth ASC
 LIMIT $limit

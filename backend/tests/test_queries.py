@@ -7,6 +7,8 @@ live FalkorDB instance to prove the Cypher agrees with the reference model.
 
 from __future__ import annotations
 
+import re
+
 import pytest
 
 from app.graph import queries
@@ -100,6 +102,27 @@ def test_query_templates_only_interpolate_a_validated_depth():
         placeholders = set(re.findall(r"(?<!\{)\{([a-z_]+)\}(?!\})", value))
         unexpected = placeholders - allowed
         assert not unexpected, f"{name} interpolates unexpected slots: {unexpected}"
+
+
+def test_every_traversal_template_builds():
+    """Every template carrying a depth slot must survive `build()`.
+
+    A Cypher map literal like `{id: $service_id}` is indistinguishable from a
+    format placeholder, so `str.format` raises `KeyError: 'id'` on any template
+    that mixes f-string interpolation with a `{max_depth}` slot. Walking all of
+    them means the next template added is covered automatically.
+    """
+    for name, template in vars(queries).items():
+        if not name.isupper() or not isinstance(template, str):
+            continue
+        if "{max_depth}" not in template:
+            continue
+        built = queries.build(template, 2)
+        assert "*1..2" in built, f"{name} did not substitute the depth"
+        assert "{max_depth}" not in built, f"{name} left the depth slot unfilled"
+        # Only Cypher map literals may remain braced, never format placeholders.
+        leftover = re.findall(r"\{([a-z_]+)\}", re.sub(r"\{[a-z_]+: .*?\}", "", built))
+        assert not leftover, f"{name} left placeholders unfilled: {leftover}"
 
 
 def test_depth_slot_cannot_be_used_for_injection():
@@ -278,3 +301,25 @@ class TestLiveFalkorDB:
         rows = GraphRepository().related_incidents(["svc-webhook"])
         unknown = next(r for r in rows if r["id"] == "inc-2026-04-webhook-latency")
         assert unknown["cause_names"] == []
+
+    def test_dependency_paths_are_returned(self, integration):
+        """The path query is reached only via the agent tool, so pin it here."""
+        from app.graph.repository import GraphRepository
+
+        paths = GraphRepository().dependency_paths("svc-payment-legacy", depth=3)
+        assert paths, "expected at least one dependency path"
+
+        starts = {p.nodes[0].id for p in paths}
+        assert "svc-checkout" in starts
+        assert "svc-storefront" in starts, "the 3-hop path must be reachable"
+
+        for path in paths:
+            assert len(path.edges) == len(path.nodes) - 1
+            assert path.nodes[-1].id == "svc-payment-legacy"
+
+    def test_upstream_dependencies_are_returned(self, integration):
+        from app.graph.repository import GraphRepository
+
+        rows = GraphRepository().upstream_dependencies("svc-payment-legacy")
+        ids = {r["id"] for r in rows}
+        assert {"svc-ledger", "svc-fraud", "svc-webhook", "svc-identity"} <= ids
