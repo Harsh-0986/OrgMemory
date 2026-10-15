@@ -12,8 +12,9 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import GraphCanvas from "@/components/GraphCanvas";
 import { api, ApiRequestError } from "@/lib/api";
-import type { EntityListResponse, GraphOverview } from "@/lib/types";
+import type { EntityListResponse, FullGraphResponse, GraphOverview, NodeRef } from "@/lib/types";
 
 /** Which properties are worth showing as columns for each label. */
 const COLUMNS: Record<string, string[]> = {
@@ -52,11 +53,39 @@ export default function GraphDataPage() {
     error: string | null;
   } | null>(null);
 
+  // The whole-graph view is a separate payload fetched once and cached: it does
+  // not change when the label or filter does, so there is no reason to refetch.
+  const [view, setView] = useState<"table" | "graph">("graph");
+  const [graph, setGraph] = useState<FullGraphResponse | null>(null);
+  const [graphError, setGraphError] = useState<string | null>(null);
+  const [focused, setFocused] = useState<string | null>(null);
+
+  // Derived, not stored: nothing has arrived and nothing has failed yet.
+  const graphLoading = graph === null && graphError === null;
+
   useEffect(() => {
     void api
       .overview()
       .then(setOverview)
       .catch(() => setOverview(null));
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    void api
+      .fullGraph()
+      .then((payload) => {
+        if (!cancelled) setGraph(payload);
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        setGraphError(
+          err instanceof ApiRequestError ? err.message : "Could not load the graph.",
+        );
+      })
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   // Typing should not fire a query per keystroke, so the text input and the
@@ -99,6 +128,33 @@ export default function GraphDataPage() {
       cancelled = true;
     };
   }, [label, debounced, requestKey]);
+
+  /**
+   * In graph view the filter narrows the picture rather than a table: matching
+   * nodes keep their edges to anything still visible, so filtering to
+   * "Incident" shows the incidents wired to their services instead of seven
+   * floating dots.
+   */
+  const graphView = useMemo(() => {
+    if (!graph) return { nodes: [] as NodeRef[], edges: [] };
+
+    const needle = search.trim().toLowerCase();
+    const keep = new Set(
+      graph.nodes
+        .filter(
+          (node) =>
+            !needle ||
+            node.id.toLowerCase().includes(needle) ||
+            node.name.toLowerCase().includes(needle),
+        )
+        .map((node) => node.id),
+    );
+
+    return {
+      nodes: graph.nodes.filter((node) => keep.has(node.id)),
+      edges: graph.edges.filter((edge) => keep.has(edge.from_id) && keep.has(edge.to_id)),
+    };
+  }, [graph, search]);
 
   const columns = COLUMNS[label] ?? ["name"];
 
@@ -148,6 +204,43 @@ export default function GraphDataPage() {
           </p>
         </section>
 
+        {/* View switch. Graph first: this is a graph tool, and the picture is
+            the faster way to read the shape of the data. */}
+        <div className="flex gap-6 border-b border-rule">
+          {(["graph", "table"] as const).map((mode) => (
+            <button
+              key={mode}
+              type="button"
+              onClick={() => setView(mode)}
+              className={[
+                "-mb-px border-b-[1.5px] pb-2 font-ui text-sm capitalize transition",
+                view === mode
+                  ? "border-ink text-ink"
+                  : "border-transparent text-ink-faint hover:text-ink-soft",
+              ].join(" ")}
+            >
+              {mode === "graph" ? "Graph" : "Table"}
+              {mode === "graph" && graph && (
+                <span className="ml-1.5 font-mono text-[0.7rem] text-ink-faint">
+                  {graphView.nodes.length}
+                </span>
+              )}
+            </button>
+          ))}
+        </div>
+
+        {view === "graph" ? (
+          <GraphSection
+            graph={graph}
+            loading={graphLoading}
+            error={graphError}
+            view={graphView}
+            search={search}
+            focused={focused}
+            onFocus={setFocused}
+          />
+        ) : (
+          <>
         {/* Label picker — counts from the overview, so the shape is visible first. */}
         <nav className="flex flex-wrap gap-x-6 gap-y-2 border-b border-rule pb-4">
           {ORDER.map((name) => {
@@ -261,6 +354,9 @@ export default function GraphDataPage() {
           </div>
         )}
 
+          </>
+        )}
+
         {/* Relationship inventory, straight from the overview. */}
         {overview && (
           <section className="mt-14 border-t border-rule pt-8">
@@ -285,6 +381,87 @@ export default function GraphDataPage() {
           </section>
         )}
       </main>
+    </div>
+  );
+}
+
+/**
+ * The whole-graph plate. Nodes are coloured by label (the shared palette from
+ * `lib/force.ts`) and clicking one focuses it and everything it touches.
+ */
+function GraphSection({
+  graph,
+  loading,
+  error,
+  view,
+  search,
+  focused,
+  onFocus,
+}: {
+  graph: FullGraphResponse | null;
+  loading: boolean;
+  error: string | null;
+  view: { nodes: NodeRef[]; edges: FullGraphResponse["edges"] };
+  search: string;
+  focused: string | null;
+  onFocus: (id: string | null) => void;
+}) {
+  if (error) {
+    return (
+      <div className="mt-6 border-l-2 border-signal bg-signal-wash px-4 py-3 font-ui text-sm text-signal">
+        {error}
+      </div>
+    );
+  }
+
+  if (loading || !graph) {
+    return (
+      <p className="mt-10 font-ui text-sm text-ink-faint">Loading the graph…</p>
+    );
+  }
+
+  return (
+    <div className="py-6">
+      <div className="mb-3 flex flex-wrap items-baseline justify-between gap-3">
+        <p className="font-ui text-sm text-ink-soft">
+          {view.nodes.length} nodes · {view.edges.length} edges
+          {search.trim() && (
+            <span className="text-ink-faint"> matching “{search.trim()}”</span>
+          )}
+        </p>
+        {focused && (
+          <button
+            type="button"
+            onClick={() => onFocus(null)}
+            className="font-ui text-[0.75rem] text-link hover:underline"
+          >
+            clear focus
+          </button>
+        )}
+      </div>
+
+      {view.nodes.length === 0 ? (
+        <p className="py-16 text-center font-ui text-sm text-ink-faint">
+          Nothing in the graph matches “{search.trim()}”.
+        </p>
+      ) : (
+        <div className="overflow-hidden border border-rule">
+          <GraphCanvas
+            nodes={view.nodes}
+            edges={view.edges}
+            paths={[]}
+            highlightedId={focused}
+            onSelect={onFocus}
+            height={560}
+          />
+        </div>
+      )}
+
+      <p className="mt-3 max-w-[68ch] font-prose text-sm leading-relaxed text-ink-soft">
+        Filtering narrows the picture rather than hiding rows: matching nodes keep
+        their edges to anything still visible. Click a node to trace what it
+        touches.
+      </p>
     </div>
   );
 }

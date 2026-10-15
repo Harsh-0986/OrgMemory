@@ -208,6 +208,11 @@ export interface EntityListResponse {
   entities: EntityRecord[];
 }
 
+export interface FullGraphResponse {
+  nodes: NodeRef[];
+  edges: Edge[];
+}
+
 export interface GraphOverview {
   graph: string;
   node_counts: Record<string, number>;

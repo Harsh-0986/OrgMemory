@@ -10,6 +10,7 @@
 import type {
   ApiError,
   EntityListResponse,
+  FullGraphResponse,
   GraphOverview,
   InvestigationHistory,
   InvestigationResponse,
@@ -90,6 +91,8 @@ export const api = {
     request<EntityListResponse>(
       `/api/graph/entities?label=${encodeURIComponent(label)}${q ? `&q=${encodeURIComponent(q)}` : ""}`,
     ),
+
+  fullGraph: () => request<FullGraphResponse>("/api/graph/full"),
 
   neighborhood: (entityId: string, depth = 2) =>
     request<unknown>(
