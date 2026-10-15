@@ -257,6 +257,75 @@ class GraphRepository:
             "criticality_breakdown": criticality,
         }
 
+    def full_graph(self) -> dict[str, Any]:
+        """Every node and edge in the graph, for the whole-graph view.
+
+        Node labels are validated into `EntityType` on the way out so the
+        frontend can colour by type without guessing.
+        """
+        from app.models.graph import EntityType
+
+        label_map = {e.value: e for e in EntityType}
+
+        node_rows = _rows(queries.ALL_NODES, {"limit": queries.default_limit(1000, 2000)})
+        edge_rows = _rows(queries.ALL_EDGES, {"limit": queries.default_limit(4000, 4000)})
+
+        nodes = [
+            NodeRef(
+                id=row.get("id", ""),
+                type=label_map.get(row.get("label", ""), EntityType.SERVICE),
+                name=row.get("name", "") or row.get("id", ""),
+                properties={"label": row.get("label", "")},
+            )
+            for row in node_rows
+            if row.get("id")
+        ]
+        known = {node.id for node in nodes}
+
+        edges: list[Edge] = []
+        for row in edge_rows:
+            source, target = row.get("from_id"), row.get("to_id")
+            if not source or not target or source not in known or target not in known:
+                continue
+            try:
+                relation = RelationType(row.get("rel_type", ""))
+            except ValueError:
+                continue
+            edges.append(
+                Edge(
+                    type=relation,
+                    from_id=source,
+                    from_type=EntityType.SERVICE,
+                    to_id=target,
+                    to_type=EntityType.SERVICE,
+                )
+            )
+
+        return {"nodes": nodes, "edges": edges}
+
+    def list_entities(self, label: str, search: str = "") -> list[dict[str, Any]]:
+        """Every entity of one label, optionally filtered by a free-text needle.
+
+        Backs the "what is loaded" browser. Bounded by `graph_max_results`, and
+        the label is validated against the entity allowlist before it reaches
+        Cypher - Cypher cannot bind a label from a parameter, so the value has
+        to be interpolated, and this is the check that makes that safe.
+        """
+        from app.models.graph import EntityType
+
+        if label not in {e.value for e in EntityType}:
+            raise ValueError(f"Unknown node label '{label}'")
+
+        rows = _rows(
+            queries.list_entities_template(label),
+            {"q": (search or "").strip(), "limit": queries.default_limit(500)},
+        )
+        return [
+            {"id": row.get("id", ""), "label": label, "properties": row.get("props") or {}}
+            for row in rows
+        ]
+
+
     def neighborhood(self, entity_id: str, depth: int | None = None) -> dict[str, Any]:
         """The subgraph around one entity, as nodes, edges and paths."""
         limit = queries.default_limit(queries.default_limit())

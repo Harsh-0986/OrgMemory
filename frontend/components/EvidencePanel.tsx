@@ -83,9 +83,9 @@ export default function EvidencePanel({
                   {record.tool && (
                     <span className="font-mono text-[0.68rem] text-ink-faint">{record.tool}</span>
                   )}
-                  {record.source_ids.slice(0, 10).map((id) => (
+                  {record.source_ids.slice(0, 10).map((id, index) => (
                     <button
-                      key={id}
+                      key={`${id}-${index}`}
                       type="button"
                       onClick={() => onSelect(highlightedId === id ? null : id)}
                       className={[

@@ -239,6 +239,53 @@ ORDER BY id ASC
 LIMIT $limit
 """
 
+#: Every entity of one label, optionally filtered by a free-text needle.
+#:
+#: No pagination: the demo graph is small enough to return whole, and a single
+#: bounded round trip is kinder to the database than a paginated scan.
+_LIST_TAIL = """
+WHERE toLower(coalesce(n.name, n.title, '')) CONTAINS toLower($q)
+   OR toLower(n.id) CONTAINS toLower($q)
+RETURN n.id AS id, properties(n) AS props
+ORDER BY id ASC
+LIMIT $limit
+"""
+
+
+def list_entities_template(label: str) -> str:
+    """Build the listing query for a label, from the fixed allowlist only.
+
+    Cypher cannot bind a node label from a parameter, so the label has to be
+    interpolated into the query text. Accepting only `EntityType` members is
+    what makes that interpolation safe.
+    """
+    from app.models.graph import EntityType
+
+    allowed = {e.value for e in EntityType}
+    if label not in allowed:
+        raise ValueError(f"Unknown node label '{label}'")
+    return f"MATCH (n:{label})\n{_LIST_TAIL}"
+
+
+#: Every node and every edge, for the whole-graph view.
+#:
+#: Bounded by `LIMIT` because this is the one query that is not scoped to a
+#: label or an entity. It is a demo-scale graph, so a single bounded pass is
+#: cheaper and simpler than paginating.
+ALL_NODES = """
+MATCH (n)
+RETURN n.id AS id, head(labels(n)) AS label, coalesce(n.name, n.title, n.id) AS name
+ORDER BY id ASC
+LIMIT $limit
+"""
+
+ALL_EDGES = """
+MATCH (a)-[r]->(b)
+RETURN a.id AS from_id, type(r) AS rel_type, b.id AS to_id
+ORDER BY from_id ASC, rel_type ASC
+LIMIT $limit
+"""
+
 GRAPH_OVERVIEW = """
 MATCH (n)
 RETURN head(labels(n)) AS label, count(n) AS count
@@ -346,9 +393,15 @@ def build(template: str, depth: int | None = None) -> str:
     )
 
 
-def default_limit(default: int = 50) -> int:
-    """Clamp a caller-supplied limit to the configured maximum."""
-    return min(max(1, default), get_settings().graph_max_results)
+def default_limit(default: int = 50, ceiling: int | None = None) -> int:
+    """Clamp a caller-supplied limit.
+
+    Defaults to `GRAPH_MAX_RESULTS`, which is right for per-entity queries but
+    too small for whole-graph reads: clamping those to 100 would silently show
+    a truncated graph. Pass an explicit `ceiling` for those.
+    """
+    cap = ceiling if ceiling is not None else get_settings().graph_max_results
+    return min(max(1, default), cap)
 
 
 def max_depth(requested: int | None = None) -> int:

@@ -346,6 +346,18 @@ class TestPipeline:
         nodes_ran = {step.node for step in summary["steps"]}
         assert {"plan", "retrieve", "write", "critic", "memory"} <= nodes_ran
 
+    def test_evidence_source_ids_are_unique(self, fake_repo):
+        """Citations render as keyed chips, so duplicates break React.
+
+        Traversal queries return one row per related entity - an incident once
+        per service it affected - so ids repeat unless de-duplicated.
+        """
+        summary = summarise_state(run_investigation(DEMO_QUESTION, repository=fake_repo))
+        for record in summary["evidence"]:
+            assert len(record.source_ids) == len(set(record.source_ids)), (
+                f"{record.evidence_id} has duplicate source_ids: {record.source_ids}"
+            )
+
     def test_tool_calls_stay_within_budget(self, fake_repo):
         result = run_investigation(DEMO_QUESTION, repository=fake_repo)
         assert result["tool_call_count"] <= get_settings().agent_max_tool_calls

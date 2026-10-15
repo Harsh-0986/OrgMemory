@@ -195,6 +195,19 @@ export interface InvestigationHistory {
   investigations: InvestigationSummary[];
 }
 
+export interface EntityRecord {
+  id: string;
+  label: string;
+  properties: Record<string, unknown>;
+}
+
+export interface EntityListResponse {
+  label: string;
+  total: number;
+  search: string;
+  entities: EntityRecord[];
+}
+
 export interface GraphOverview {
   graph: string;
   node_counts: Record<string, number>;

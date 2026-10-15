@@ -14,6 +14,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useSyncExternalStore, useState } from "react";
+import Link from "next/link";
 import AnswerPanel from "@/components/AnswerPanel";
 import EvidencePanel from "@/components/EvidencePanel";
 import GraphCanvas from "@/components/GraphCanvas";
@@ -232,9 +233,12 @@ export default function Dashboard() {
         <div className="mx-auto flex max-w-[1400px] items-baseline justify-between gap-6 px-6 py-4">
           <div className="flex items-baseline gap-3">
             <h1 className="font-ui text-[1.05rem] font-semibold tracking-tight">OrgMemory</h1>
-            <span className="font-prose text-sm italic text-ink-faint">
-              your company&rsquo;s knowledge, connected and explainable
-            </span>
+            <Link
+              href="/graph"
+              className="font-prose text-sm italic text-ink-faint underline decoration-dotted underline-offset-4 transition hover:text-ink hover:decoration-solid"
+            >
+              what is loaded
+            </Link>
           </div>
 
           <div className="flex items-center gap-4">

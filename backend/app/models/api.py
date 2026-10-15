@@ -63,6 +63,30 @@ class GraphOverviewResponse(BaseModel):
     criticality_breakdown: dict[str, int] = Field(default_factory=dict)
 
 
+class EntityRecord(BaseModel):
+    """One stored entity with its full property set."""
+
+    id: str
+    label: str
+    properties: dict[str, Any] = Field(default_factory=dict)
+
+
+class EntityListResponse(BaseModel):
+    """Everything the graph holds for one node label."""
+
+    label: str
+    total: int
+    search: str = ""
+    entities: list[EntityRecord] = Field(default_factory=list)
+
+
+class FullGraphResponse(BaseModel):
+    """Every node and edge in the graph, for the whole-graph view."""
+
+    nodes: list[NodeRef] = Field(default_factory=list)
+    edges: list[Edge] = Field(default_factory=list)
+
+
 class NeighborhoodResponse(BaseModel):
     entity_id: str
     depth: int

@@ -144,7 +144,7 @@ class GraphToolbox:
                 entities=services,
                 paths=paths,
                 tool="dependency_impact",
-                source_ids=[s.id for s in services],
+                source_ids=_unique([s.id for s in services]),
             ),
             step=self._step(
                 "retrieve",
@@ -176,7 +176,7 @@ class GraphToolbox:
                 ),
                 entities=people,
                 tool="owners_of",
-                source_ids=[p.id for p in people],
+                source_ids=_unique([p.id for p in people]),
                 caveats=(
                     [f"No owner recorded for: {', '.join(unowned)}"] if unowned else []
                 ),
@@ -216,7 +216,7 @@ class GraphToolbox:
                 ),
                 entities=list(people.values()),
                 tool="relevant_engineers",
-                source_ids=list(people),
+                source_ids=_unique(list(people)),
             ),
             step=self._step(
                 "retrieve", "Find engineers with relevant history", "relevant_engineers", started
@@ -254,7 +254,7 @@ class GraphToolbox:
                 ),
                 entities=incidents,
                 tool="related_incidents",
-                source_ids=[i.id for i in incidents],
+                source_ids=_unique([i.id for i in incidents]),
                 caveats=(
                     [f"No recorded cause for: {', '.join(unknowns)}"] if unknowns else []
                 ),
@@ -294,7 +294,7 @@ class GraphToolbox:
                 ),
                 entities=decisions,
                 tool="decision_history",
-                source_ids=[d.id for d in decisions],
+                source_ids=_unique([d.id for d in decisions]),
                 caveats=(
                     [f"Superseded: {len(superseded)} decision(s)"] if superseded else []
                 ),
@@ -333,7 +333,7 @@ class GraphToolbox:
                 ),
                 entities=docs,
                 tool="supporting_documents",
-                source_ids=[d.id for d in docs],
+                source_ids=_unique([d.id for d in docs]),
             ),
             step=self._step(
                 "retrieve", "Retrieve supporting documents", "supporting_documents", started
@@ -360,7 +360,7 @@ class GraphToolbox:
                 ),
                 entities=deps,
                 tool="shared_dependencies",
-                source_ids=[d.id for d in deps],
+                source_ids=_unique([d.id for d in deps]),
                 confidence="confirmed" if rows else "unknown",
             ),
             step=self._step(
@@ -389,7 +389,7 @@ class GraphToolbox:
                 ),
                 entities=deps,
                 tool="upstream_dependencies",
-                source_ids=[d.id for d in deps],
+                source_ids=_unique([d.id for d in deps]),
             ),
             step=self._step(
                 "retrieve",
@@ -415,13 +415,25 @@ class GraphToolbox:
                     else "No related past investigations were found for this question."
                 ),
                 tool="recall_investigations",
-                source_ids=[r["id"] for r in rows],
+                source_ids=_unique([r["id"] for r in rows]),
                 confidence="confirmed" if rows else "unknown",
             ),
             step=self._step(
                 "recall", "Recall previous investigations", "recall_investigations", started
             ),
         )
+
+
+def _unique(ids: list[str]) -> list[str]:
+    """Order-preserving de-duplication.
+
+    Graph queries that traverse a join (an incident per affected service, a
+    document per related entity) return the same id more than once. Those rows
+    are meaningful — the UI shows which entity each relates to — but the
+    `source_ids` list rendered as chips must not repeat, or React sees duplicate
+    keys.
+    """
+    return list(dict.fromkeys(i for i in ids if i))
 
 
 def _service_node(row: dict[str, Any]) -> NodeRef:

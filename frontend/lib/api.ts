@@ -9,6 +9,7 @@
 
 import type {
   ApiError,
+  EntityListResponse,
   GraphOverview,
   InvestigationHistory,
   InvestigationResponse,
@@ -84,6 +85,11 @@ export const api = {
   health: () => request<{ status: string; graph_connected: boolean }>("/health"),
 
   overview: () => request<GraphOverview>("/api/graph/overview"),
+
+  entities: (label: string, q = "") =>
+    request<EntityListResponse>(
+      `/api/graph/entities?label=${encodeURIComponent(label)}${q ? `&q=${encodeURIComponent(q)}` : ""}`,
+    ),
 
   neighborhood: (entityId: string, depth = 2) =>
     request<unknown>(
