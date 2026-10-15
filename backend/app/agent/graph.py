@@ -20,7 +20,13 @@ from typing import Any
 from langgraph.graph import END, START, StateGraph
 
 from app.agent import nodes
-from app.agent.state import Critique, InvestigationPlan, InvestigationState, new_state
+from app.agent.state import (
+    Critique,
+    ExecutionStep,
+    InvestigationPlan,
+    InvestigationState,
+    new_state,
+)
 from app.agent.tools import GraphToolbox
 from app.config import get_settings
 from app.graph.repository import GraphRepository
@@ -65,15 +71,15 @@ def finalize_node(state: InvestigationState) -> dict[str, Any]:
     return {
         "answer": answer + "\n".join(notes),
         "steps": [
-            {
-                "node": "finalize",
-                "title": "Apply critic verdict",
-                "status": "completed",
-                "detail": (
+            ExecutionStep(
+                node="finalize",
+                title="Apply critic verdict",
+                status="completed",
+                detail=(
                     f"{len(critique.unsupported_claims)} ungrounded claim(s) labelled"
                 ),
-                "tool": "finalize",
-            }
+                tool="finalize",
+            )
         ],
     }
 

@@ -12,7 +12,6 @@ import pytest
 from app.graph import queries
 from app.seed import data, validate_dataset
 
-
 # --------------------------------------------------------------------------
 # Dataset integrity
 # --------------------------------------------------------------------------
@@ -85,7 +84,6 @@ def test_result_limit_is_clamped():
 
 def test_query_templates_are_parameterised():
     """No template may interpolate a value into the Cypher string."""
-    import inspect
 
     for name, value in vars(queries).items():
         if not name.isupper() or not isinstance(value, str):

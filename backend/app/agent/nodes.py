@@ -407,33 +407,35 @@ def retrieve_node(state: InvestigationState) -> dict[str, Any]:
         impacted = impact.data["impacted"] if impact else []
         impacted_paths = impact.data["paths"] if impact else []
     impacted_ids = [item.service.id for item in impacted]
+    # The subject service is always in scope. Without this, an incident or
+    # ownership question - where impact analysis may be skipped entirely -
+    # would query an empty service list and find nothing.
+    scope_ids = [subject_id, *impacted_ids]
 
     upstream = _safe_tool(
         toolbox, evidence, steps, "upstream_dependencies", service_id=subject_id
     )
 
     # Owners of the subject plus every impacted service, in one query.
-    owners = _safe_tool(
-        toolbox, evidence, steps, "owners_of", service_ids=[subject_id, *impacted_ids]
-    )
+    owners = _safe_tool(toolbox, evidence, steps, "owners_of", service_ids=scope_ids)
 
     engineers = (
         _safe_tool(
-            toolbox, evidence, steps, "relevant_engineers", service_ids=impacted_ids
+            toolbox, evidence, steps, "relevant_engineers", service_ids=scope_ids
         )
         if wants_ownership
         else None
     )
     incidents = (
         _safe_tool(
-            toolbox, evidence, steps, "related_incidents", service_ids=impacted_ids
+            toolbox, evidence, steps, "related_incidents", service_ids=scope_ids
         )
         if wants_incidents
         else None
     )
     decisions = (
         _safe_tool(
-            toolbox, evidence, steps, "decision_history", service_ids=[subject_id, *impacted_ids]
+            toolbox, evidence, steps, "decision_history", service_ids=scope_ids
         )
         if wants_decisions
         else None
@@ -441,8 +443,7 @@ def retrieve_node(state: InvestigationState) -> dict[str, Any]:
 
     # Documents that explain the services and back the decisions.
     doc_entity_ids = [
-        subject_id,
-        *impacted_ids,
+        *scope_ids,
         *[d["id"] for d in (decisions.data if decisions else [])],
     ]
     documents = _safe_tool(
@@ -723,6 +724,21 @@ def critic_node(state: InvestigationState) -> dict[str, Any]:
 # --------------------------------------------------------------------------
 
 
+def dedupe_people(people: list[NodeRef]) -> list[NodeRef]:
+    """De-duplicate people by id, preserving first-seen order.
+
+    Pydantic models are unhashable, so `dict.fromkeys` cannot be used here.
+    """
+    seen: set[str] = set()
+    unique: list[NodeRef] = []
+    for person in people:
+        if person.id in seen:
+            continue
+        seen.add(person.id)
+        unique.append(person)
+    return unique
+
+
 def build_recommendations(state: InvestigationState) -> list[Recommendation]:
     """Derive next steps from graph structure only.
 
@@ -751,9 +767,7 @@ def build_recommendations(state: InvestigationState) -> list[Recommendation]:
                     "replaced within the configured traversal depth."
                 ),
                 evidence_ids=["ev-impact", "ev-owners"],
-                suggested_reviewers=list(
-                    dict.fromkeys(reviewer_people)
-                )[:8],
+                suggested_reviewers=dedupe_people(reviewer_people)[:8],
             )
         )
 

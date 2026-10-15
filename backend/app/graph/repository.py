@@ -29,6 +29,22 @@ logger = logging.getLogger(__name__)
 
 _WORD_RE = re.compile(r"[a-z0-9]+")
 
+#: Words too common to carry signal when ranking past investigations. Without
+#: these, "what is the timezone for the team" would match a stored question
+#: purely on shared filler words.
+_STOPWORDS = frozenset(
+    """
+    a an the and or but of in on at to for from by with without within into over under
+    is are was were be been being do does did doing done have has had having
+    can could should would will shall may might must
+    what which who whom whose when where why how
+    this that these those there here it its
+    we our us you your they them their i me my
+    if then than so such not no nor only own same too very just
+    about against between during before after above below up down out off
+    """.split()
+)
+
 
 def _rows(template: str, params: dict[str, Any]) -> list[dict[str, Any]]:
     """Execute an allowlisted template and return normalised rows.
@@ -133,6 +149,45 @@ def _dedupe_paths(paths: list[GraphPath]) -> list[GraphPath]:
         seen.add(key)
         unique.append(path)
     return unique
+
+
+def rank_investigations(
+    items: list[dict[str, Any]], terms: str, limit: int = 3
+) -> list[dict[str, Any]]:
+    """Rank stored investigations by content-word overlap with `terms`.
+
+    Module-level so the in-memory test repository shares one implementation
+    rather than reimplementing the scoring rule and drifting from it.
+    """
+    wanted = _content_terms(terms)
+    if not wanted:
+        return []
+
+    scored: list[tuple[float, dict[str, Any]]] = []
+    for item in items:
+        haystack = _content_terms(item.get("question") or "")
+        if not haystack:
+            continue
+        overlap = wanted & haystack
+        if not overlap:
+            continue
+        scored.append((len(overlap) / len(wanted | haystack), item))
+
+    scored.sort(key=lambda pair: pair[0], reverse=True)
+    return [
+        dict(item, relevance=round(score, 3))
+        for score, item in scored[:limit]
+        if score > 0
+    ]
+
+
+def _content_terms(text: str) -> set[str]:
+    """Lowercase content words, with stopwords and short tokens removed."""
+    return {
+        word
+        for word in _WORD_RE.findall(text.lower())
+        if len(word) > 2 and word not in _STOPWORDS
+    }
 
 
 class GraphRepository:
@@ -470,25 +525,10 @@ class GraphRepository:
         """Past investigations whose question overlaps the current one.
 
         Term matching happens in Python: it is cheap, keeps the Cypher trivial,
-        and makes the ranking auditable.
+        and makes the ranking auditable. Filler words are dropped so that only
+        substantive overlap drives recall.
         """
-        wanted = set(_WORD_RE.findall(terms.lower()))
-        if not wanted:
-            return []
-
-        scored: list[tuple[float, dict[str, Any]]] = []
-        for item in self.list_investigations(limit=50):
-            haystack = set(_WORD_RE.findall((item.get("question") or "").lower()))
-            if not haystack:
-                continue
-            overlap = wanted & haystack
-            if not overlap:
-                continue
-            score = len(overlap) / len(wanted | haystack)
-            scored.append((score, item))
-
-        scored.sort(key=lambda pair: pair[0], reverse=True)
-        return [dict(item, relevance=round(score, 3)) for score, item in scored[:limit] if score > 0]
+        return rank_investigations(self.list_investigations(limit=50), terms, limit)
 
     def clear_investigations(self) -> int:
         """Delete all investigation memory. Dev/test utility only."""

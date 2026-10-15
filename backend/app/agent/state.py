@@ -7,7 +7,8 @@ things that appear in them, and the critic's job is to catch it when it doesn't.
 
 from __future__ import annotations
 
-from typing import Any, Literal, TypedDict
+import operator
+from typing import Annotated, Any, Literal, TypedDict
 
 from pydantic import BaseModel, Field
 
@@ -90,7 +91,9 @@ class InvestigationState(TypedDict, total=False):
     # -- Output -----------------------------------------------------------
     answer: str
     confidence: str = "moderate"
-    steps: list[ExecutionStep]
+    #: Concatenated across nodes by the reducer below. Without it LangGraph
+    #: replaces the list on every node and only the final node's steps survive.
+    steps: Annotated[list[ExecutionStep], operator.add]
 
     # -- Bounds / bookkeeping --------------------------------------------
     tool_call_count: int

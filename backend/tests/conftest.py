@@ -121,7 +121,7 @@ class FakeGraphRepository:
 
     # -- Dependency analysis ------------------------------------------------
     def impacted_services(self, service_id: str, depth: int | None = None) -> list[Any]:
-        from app.graph.repository import _as_node_ref, _person_ref
+        from app.graph.repository import _as_node_ref
         from app.models.graph import EntityType, ImpactedService
 
         limit = depth or 3
@@ -181,12 +181,12 @@ class FakeGraphRepository:
                 edges = [
                     Edge(
                         type=RelationType.DEPENDS_ON,
-                        from_id=a,
+                        from_id=src.id,
                         from_type=EntityType.SERVICE,
-                        to_id=b,
+                        to_id=dst.id,
                         to_type=EntityType.SERVICE,
                     )
-                    for a, b in zip(nodes, nodes[1:])
+                    for src, dst in zip(nodes, nodes[1:])
                 ]
                 paths.append(
                     GraphPath(
@@ -403,9 +403,9 @@ class FakeGraphRepository:
         return {**record, "cited_entities": cited}
 
     def recall_investigations(self, terms: str, limit: int = 3) -> list[dict[str, Any]]:
-        from app.graph.repository import GraphRepository
+        from app.graph.repository import rank_investigations
 
-        return GraphRepository.recall_investigations(self, terms, limit)
+        return rank_investigations(self.list_investigations(limit=50), terms, limit)
 
     def clear_investigations(self) -> int:
         count = len(self.investigations)
