@@ -27,11 +27,6 @@ build/
 *.tsbuildinfo
 next-env.d.ts
 
-# ---- Local FalkorDB artefacts -------------------------------------------
-infra/falkordb/*.so
-infra/falkordb/*.zip
-infra/falkordb/dump.rdb
-
 # ---- Editors / OS --------------------------------------------------------
 .DS_Store
 .idea/

@@ -46,6 +46,43 @@ _STOPWORDS = frozenset(
 )
 
 
+def _result_to_dicts(result: Any) -> list[dict[str, Any]]:
+    """Convert a FalkorDB `QueryResult` into a list of dictionaries.
+
+    The driver returns `result_set` as *positional* rows (lists of scalars) and
+    the column names separately in `header`, where each entry is a
+    `[type_code, column_name]` pair. Zipping the two is what turns a live
+    result into the `{"id": ..., "name": ...}` shape the repository and the
+    agent expect.
+    """
+    header = result.header or []
+    # `[-1]` is the column name: FalkorDB entries are `[type_code, name]`,
+    # and a plain `["name"]` yields the right answer too.
+    columns: list[str] = [
+        str(entry[-1]) if isinstance(entry, (list, tuple)) and entry else str(entry)
+        for entry in header
+    ]
+
+    rows: list[dict[str, Any]] = []
+    for row in result.result_set or []:
+        if isinstance(row, dict):
+            rows.append(dict(row))
+            continue
+        if not isinstance(row, (list, tuple)):
+            rows.append({"value": row})
+            continue
+        if columns:
+            rows.append(
+                {
+                    name: row[idx] if idx < len(row) else None
+                    for idx, name in enumerate(columns)
+                }
+            )
+        else:
+            rows.append({f"col_{idx}": value for idx, value in enumerate(row)})
+    return rows
+
+
 def _rows(template: str, params: dict[str, Any]) -> list[dict[str, Any]]:
     """Execute an allowlisted template and return normalised rows.
 
@@ -61,7 +98,7 @@ def _rows(template: str, params: dict[str, Any]) -> list[dict[str, Any]]:
     except Exception as exc:
         logger.error("Graph query failed: %s | params=%s", exc, params)
         raise GraphUnavailable(f"Graph query failed: {exc}") from exc
-    return [queries.row_to_dict(row) for row in (result.result_set or [])]
+    return _result_to_dicts(result)
 
 
 def _as_node_ref(node_id: str, label: str | None, name: str, **props: Any) -> NodeRef:
@@ -223,10 +260,9 @@ class GraphRepository:
         """The subgraph around one entity, as nodes, edges and paths."""
         limit = queries.default_limit(queries.default_limit())
         rows = _rows(
-            queries.GRAPH_NEIGHBORHOOD,
+            queries.build(queries.GRAPH_NEIGHBORHOOD, depth),
             {
                 "entity_id": entity_id,
-                "max_depth": queries.max_depth(depth),
                 "limit": limit,
             },
         )
@@ -298,10 +334,9 @@ class GraphRepository:
         the change, at the minimum hop count.
         """
         rows = _rows(
-            queries.DEPENDENCY_IMPACT,
+            queries.build(queries.DEPENDENCY_IMPACT, depth),
             {
                 "service_id": service_id,
-                "max_depth": queries.max_depth(depth),
                 "limit": queries.default_limit(),
             },
         )
@@ -339,10 +374,9 @@ class GraphRepository:
     ) -> list[GraphPath]:
         """The concrete paths from impacted services back to the changed one."""
         rows = _rows(
-            queries.DEPENDENCY_PATHS,
+            queries.build(queries.DEPENDENCY_PATHS, depth),
             {
                 "service_id": service_id,
-                "max_depth": queries.max_depth(depth),
                 "limit": queries.default_limit(),
             },
         )
@@ -351,10 +385,9 @@ class GraphRepository:
     def upstream_dependencies(self, service_id: str, depth: int | None = None) -> list[dict[str, Any]]:
         """What a service itself depends on."""
         return _rows(
-            queries.UPSTREAM_DEPENDENCIES,
+            queries.build(queries.UPSTREAM_DEPENDENCIES, depth),
             {
                 "service_id": service_id,
-                "max_depth": queries.max_depth(depth),
                 "limit": queries.default_limit(),
             },
         )

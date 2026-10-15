@@ -82,14 +82,39 @@ def test_result_limit_is_clamped():
     assert queries.default_limit(-5) == 1
 
 
-def test_query_templates_are_parameterised():
-    """No template may interpolate a value into the Cypher string."""
+def test_query_templates_only_interpolate_a_validated_depth():
+    """No template may interpolate caller data into Cypher.
+
+    FalkorDB rejects a parameter inside a variable-length relationship range, so
+    the hop bound has to be formatted into the string. The only permitted
+    placeholder is that depth slot (plus two module-constant projections);
+    everything else must travel through `params`.
+    """
+    import re
+
+    allowed = {"max_depth", "nodes", "rels"}
 
     for name, value in vars(queries).items():
         if not name.isupper() or not isinstance(value, str):
             continue
-        # Only interpolation of module constants (labels/limit vars) is allowed.
-        assert "{{" not in value, f"{name} contains a runtime interpolation"
+        placeholders = set(re.findall(r"(?<!\{)\{([a-z_]+)\}(?!\})", value))
+        unexpected = placeholders - allowed
+        assert not unexpected, f"{name} interpolates unexpected slots: {unexpected}"
+
+
+def test_depth_slot_cannot_be_used_for_injection():
+    """A hostile depth value must degrade to an int, never reach the template."""
+    import re
+
+    for hostile in ["3; MATCH (n) DETACH DELETE n //", "../../etc/passwd", ["a"], object()]:
+        depth = queries.max_depth(hostile)  # type: ignore[arg-type]
+        assert isinstance(depth, int), f"max_depth({hostile!r}) returned {type(depth)}"
+
+    built = queries.build(queries.DEPENDENCY_IMPACT, "2; DROP")  # type: ignore[arg-type]
+    hop_range = re.search(r"DEPENDS_ON\*1\.\.(\d+)", built)
+    assert hop_range, "depth was not substituted"
+    assert hop_range.group(1).isdigit()
+    assert "DROP" not in built
 
 
 # --------------------------------------------------------------------------

@@ -34,8 +34,14 @@ _NODE_PROJECTION = (
 _REL_PROJECTION = "[r IN relationships(p) | type(r)]"
 
 #: Impacted services, with the shortest hop count from the changed service.
+#:
+#: `{max_depth}` is substituted by `build()` with a validated integer.
+#: FalkorDB rejects a query parameter inside a variable-length relationship
+#: range - `[:DEPENDS_ON*1..$max_depth]` fails with "Encountered unhandled
+#: type in inlined properties" - so the bound must be a literal. `build()`
+#: clamps to a Python `int` before formatting, so no string can reach it.
 DEPENDENCY_IMPACT = """
-MATCH p = (impacted:Service)-[:DEPENDS_ON*1..$max_depth]->(target:Service {id: $service_id})
+MATCH p = (impacted:Service)-[:DEPENDS_ON*1..{max_depth}]->(target:Service {{id: $service_id}})
 WITH impacted, min(length(p)) AS depth
 RETURN
   impacted.id AS id,
@@ -50,7 +56,7 @@ LIMIT $limit
 
 #: The actual dependency paths, so the UI can draw and highlight them.
 DEPENDENCY_PATHS = f"""
-MATCH p = (impacted:Service)-[:DEPENDS_ON*1..$max_depth]->(target:Service {{id: $service_id}})
+MATCH p = (impacted:Service)-[:DEPENDS_ON*1..{{max_depth}}]->(target:Service {{id: $service_id}})
 RETURN
   {_NODE_PROJECTION} AS nodes,
   {_REL_PROJECTION} AS rel_types,
@@ -61,7 +67,7 @@ LIMIT $limit
 
 #: Services the given service depends on (its own dependencies).
 UPSTREAM_DEPENDENCIES = """
-MATCH p = (target:Service {id: $service_id})-[:DEPENDS_ON*1..$max_depth]->(dep:Service)
+MATCH p = (target:Service {{id: $service_id}})-[:DEPENDS_ON*1..{max_depth}]->(dep:Service)
 WITH dep, min(length(p)) AS depth
 RETURN
   dep.id AS id,
@@ -244,7 +250,7 @@ LIMIT $limit
 """
 
 GRAPH_NEIGHBORHOOD = f"""
-MATCH p = (entity)-[*1..$max_depth]-(neighbour)
+MATCH p = (entity)-[*1..{{max_depth}}]-(neighbour)
 WHERE entity.id = $entity_id
 RETURN
   {_NODE_PROJECTION} AS nodes,
@@ -319,17 +325,44 @@ RETURN count(inv) AS deleted
 """
 
 
+def build(template: str, depth: int | None = None) -> str:
+    """Fill a template's traversal-depth slot with a validated integer.
+
+    FalkorDB will not accept a parameter inside a variable-length relationship
+    range, so the hop bound has to be baked into the query string. `depth` is
+    coerced to `int` and clamped by `max_depth()` first, which makes the
+    substitution safe: a non-numeric value cannot survive to be formatted.
+
+    The only other placeholders are module constants (`{nodes}`, `{rels}`).
+    """
+    return template.format(
+        max_depth=max_depth(depth),
+        nodes=_NODE_PROJECTION,
+        rels=_REL_PROJECTION,
+    )
+
+
 def default_limit(default: int = 50) -> int:
     """Clamp a caller-supplied limit to the configured maximum."""
     return min(max(1, default), get_settings().graph_max_results)
 
 
 def max_depth(requested: int | None = None) -> int:
-    """Clamp a requested traversal depth to the configured ceiling."""
+    """Clamp a requested traversal depth to the configured ceiling.
+
+    The result is interpolated into the Cypher string by `build()`, so it must
+    always be a real `int`. A non-numeric value falls back to the ceiling
+    rather than raising, which guarantees nothing but an integer can reach the
+    template.
+    """
     ceiling = get_settings().graph_max_dependency_depth
     if requested is None:
         return ceiling
-    return min(max(1, requested), ceiling)
+    try:
+        value = int(requested)
+    except (TypeError, ValueError):
+        return ceiling
+    return min(max(1, value), ceiling)
 
 
 def row_to_dict(row: Any) -> dict[str, Any]:

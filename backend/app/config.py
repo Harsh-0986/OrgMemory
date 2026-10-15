@@ -7,9 +7,10 @@ auditable in one place rather than scattered through node functions.
 from __future__ import annotations
 
 from functools import lru_cache
+from typing import Annotated
 
 from pydantic import AliasChoices, Field, field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
 class Settings(BaseSettings):
@@ -30,7 +31,12 @@ class Settings(BaseSettings):
     app_name: str = "OrgMemory"
     environment: str = "development"
     log_level: str = "INFO"
-    cors_origins: list[str] = Field(default_factory=lambda: ["http://localhost:3000"])
+    # `NoDecode` stops pydantic-settings running `json.loads` on this before
+    # the validator below. Without it, a plain `CORS_ORIGINS=http://localhost:3000`
+    # dies on the colon, which is exactly what `.env.example` tells people to write.
+    cors_origins: Annotated[list[str], NoDecode] = Field(
+        default_factory=lambda: ["http://localhost:3000"]
+    )
 
     # -- FalkorDB ---------------------------------------------------------
     # Both naming conventions are accepted. `FALKOR_DB_INSTANCE` /
