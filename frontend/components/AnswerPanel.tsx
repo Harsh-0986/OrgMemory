@@ -43,7 +43,7 @@ function tokenize(text: string): Array<{ kind: "text" | "cite"; value: string }>
 }
 
 /** Apply `**bold**` and `` `code` `` inside a plain run. */
-function decorate(text: string, key: string, knownIds: Set<string>, onSelect: (id: string | null) => void, highlightedId: string | null): ReactNode[] {
+function decorate(text: string, key: string): ReactNode[] {
   const parts: ReactNode[] = [];
   const pattern = /(\*\*[^*]+\*\*|`[^`]+`)/g;
   let last = 0;
@@ -102,7 +102,11 @@ function renderInline(text: string, key: string, knownIds: Set<string>, onSelect
         </button>
       );
     }
-    return <Fragment key={`${key}-t-${index}`}>{decorate(token.value, `${key}-${index}`, knownIds, onSelect, highlightedId)}</Fragment>;
+    return (
+      <Fragment key={`${key}-t-${index}`}>
+        {decorate(token.value, `${key}-${index}`)}
+      </Fragment>
+    );
   });
 }
 

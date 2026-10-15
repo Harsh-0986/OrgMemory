@@ -136,6 +136,15 @@ export interface DocumentRow {
   relation_type: string;
 }
 
+/** A service as returned by the shared-dependency comparison. */
+export interface ServiceRow {
+  id: string;
+  name: string;
+  description: string;
+  criticality: string;
+  depth?: number;
+}
+
 export interface EngineerRow {
   person_id: string;
   person_name: string;
@@ -164,7 +173,7 @@ export interface InvestigationResponse {
   incidents: IncidentRow[];
   decisions: DecisionRow[];
   documents: DocumentRow[];
-  shared_dependencies: DocumentRow[];
+  shared_dependencies: ServiceRow[];
   recommendations: Recommendation[];
   recalled_investigations: InvestigationSummary[];
   critique: Critique | null;

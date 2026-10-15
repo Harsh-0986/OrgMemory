@@ -38,7 +38,12 @@ export default function GraphCanvas({
 }: GraphCanvasProps) {
   const [width, setWidth] = useState(720);
   const wrapRef = useRef<HTMLDivElement>(null);
-  const [positions, setPositions] = useState<Record<string, LayoutNode>>({});
+  /**
+   * Only user-driven node positions live in state. Laid-out positions are
+   * derived in the `useMemo` below rather than mirrored into state through an
+   * effect, which would cascade a render on every layout change.
+   */
+  const [dragged, setDragged] = useState<Record<string, { x: number; y: number }>>({});
   const dragRef = useRef<{ id: string; offsetX: number; offsetY: number } | null>(null);
   const svgRef = useRef<SVGSVGElement>(null);
 
@@ -74,20 +79,28 @@ export default function GraphCanvas({
     );
   }, [nodes, edges, width, height]);
 
-  // Republish layout positions, honouring any node the user has dragged.
-  useEffect(() => {
-    const next: Record<string, LayoutNode> = {};
+  // Final positions: the computed layout with any dragged node pinned on top.
+  const positions = useMemo(() => {
+    const map: Record<string, LayoutNode> = {};
     for (const node of layout.nodes) {
-      const dragged = positions[node.id];
-      next[node.id] = dragged?.fixed
-        ? { ...node, x: dragged.x, y: dragged.y, fixed: true }
-        : node;
+      const override = dragged[node.id];
+      map[node.id] = override ? { ...node, x: override.x, y: override.y } : node;
     }
-    setPositions(next);
-    // `positions` is intentionally omitted: including it would restart the
-    // layout on every drag frame.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [layout]);
+    return map;
+  }, [layout, dragged]);
+
+  // Edges follow the same positions so a dragged node drags its edges too.
+  const drawnEdges = useMemo(
+    () =>
+      layout.edges
+        .map((edge) => ({
+          ...edge,
+          source: positions[edge.source.id] ?? edge.source,
+          target: positions[edge.target.id] ?? edge.target,
+        }))
+        .filter((edge) => edge.source && edge.target),
+    [layout.edges, positions],
+  );
 
   /** Ids that participate in a highlighted path or the focused node. */
   const focusIds = useMemo(() => {
@@ -127,14 +140,9 @@ export default function GraphCanvas({
     const drag = dragRef.current;
     if (!drag) return;
     const point = toLocal(event.clientX, event.clientY);
-    setPositions((prev) => ({
+    setDragged((prev) => ({
       ...prev,
-      [drag.id]: {
-        ...prev[drag.id],
-        x: point.x - drag.offsetX,
-        y: point.y - drag.offsetY,
-        fixed: true,
-      },
+      [drag.id]: { x: point.x - drag.offsetX, y: point.y - drag.offsetY },
     }));
   };
 
@@ -196,7 +204,7 @@ export default function GraphCanvas({
         </defs>
 
         {/* Edges */}
-        {layout.edges.map((edge) => {
+        {drawnEdges.map((edge) => {
           const highlighted = isDimmed && focusIds.has(edge.source.id) && focusIds.has(edge.target.id);
           return (
             <line
