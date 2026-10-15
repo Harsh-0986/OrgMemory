@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 
-from pydantic import Field, field_validator
+from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -33,10 +33,21 @@ class Settings(BaseSettings):
     cors_origins: list[str] = Field(default_factory=lambda: ["http://localhost:3000"])
 
     # -- FalkorDB ---------------------------------------------------------
-    falkordb_host: str = "localhost"
+    # Both naming conventions are accepted. `FALKOR_DB_INSTANCE` /
+    # `FALKOR_DB_PASS` are the variable names the FalkorDB Cloud dashboard
+    # hands you; the `FALKORDB_*` names match the Docker/local deployment.
+    # Supporting both means a `.env` copied straight from either source works.
+    falkordb_host: str = Field(
+        default="localhost",
+        validation_alias=AliasChoices("FALKORDB_HOST", "FALKOR_DB_INSTANCE"),
+    )
     falkordb_port: int = 6379
-    falkordb_username: str = "default"
-    falkordb_password: str = ""
+    # FalkorDB Cloud's default user is `falkordb`, not Redis' `default`.
+    falkordb_username: str = "falkordb"
+    falkordb_password: str = Field(
+        default="",
+        validation_alias=AliasChoices("FALKORDB_PASSWORD", "FALKOR_DB_PASS"),
+    )
     falkordb_graph: str = "orgmemory"
     falkordb_tls: bool = False
 
