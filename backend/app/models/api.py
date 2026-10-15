@@ -11,8 +11,10 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field, field_validator
 
 from app.models.graph import (
+    Critique,
     Edge,
     Evidence,
+    ExecutionStep,
     GraphPath,
     ImpactedService,
     NodeRef,
@@ -96,25 +98,6 @@ class InvestigationRequest(BaseModel):
         return cleaned
 
 
-class ExecutionStepModel(BaseModel):
-    node: str
-    title: str
-    status: str
-    detail: str = ""
-    tool: str = ""
-    duration_ms: int = 0
-    evidence_count: int = 0
-    graph_paths: int = 0
-
-
-class CritiqueModel(BaseModel):
-    verdict: str
-    unsupported_claims: list[str] = Field(default_factory=list)
-    contradictions: list[str] = Field(default_factory=list)
-    missing_evidence: list[str] = Field(default_factory=list)
-    notes: str = ""
-
-
 class InvestigationResponse(BaseModel):
     """Full result of one investigation."""
 
@@ -135,8 +118,8 @@ class InvestigationResponse(BaseModel):
     shared_dependencies: list[dict[str, Any]] = Field(default_factory=list)
     recommendations: list[Recommendation] = Field(default_factory=list)
     recalled_investigations: list[dict[str, Any]] = Field(default_factory=list)
-    critique: CritiqueModel | None = None
-    steps: list[ExecutionStepModel] = Field(default_factory=list)
+    critique: Critique | None = None
+    steps: list[ExecutionStep] = Field(default_factory=list)
     cited_ids: list[str] = Field(default_factory=list)
     error: str | None = None
 

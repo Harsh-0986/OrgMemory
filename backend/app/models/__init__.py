@@ -1,10 +1,8 @@
 """Domain and API models."""
 
 from app.models.api import (
-    CritiqueModel,
     ErrorDetail,
     ErrorResponse,
-    ExecutionStepModel,
     GraphOverviewResponse,
     HealthResponse,
     InvestigationDetailResponse,
@@ -15,9 +13,11 @@ from app.models.api import (
     NeighborhoodResponse,
 )
 from app.models.graph import (
+    Critique,
     Edge,
     EntityType,
     Evidence,
+    ExecutionStep,
     GraphPath,
     ImpactedService,
     NodeRef,
@@ -27,13 +27,13 @@ from app.models.graph import (
 )
 
 __all__ = [
-    "CritiqueModel",
+    "Critique",
     "Edge",
     "EntityType",
     "ErrorDetail",
     "ErrorResponse",
     "Evidence",
-    "ExecutionStepModel",
+    "ExecutionStep",
     "GraphOverviewResponse",
     "GraphPath",
     "HealthResponse",

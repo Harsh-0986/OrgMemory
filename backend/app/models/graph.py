@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from enum import StrEnum
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -214,3 +214,30 @@ class Recommendation(BaseModel):
     evidence_ids: list[str] = Field(default_factory=list)
     suggested_reviewers: list[NodeRef] = Field(default_factory=list)
     requires_human_approval: bool = True
+
+
+class ExecutionStep(BaseModel):
+    """One observable step of the investigation workflow, surfaced in the UI.
+
+    Lives in the models package rather than the agent package so the API can
+    depend on it without importing the agent and creating a cycle.
+    """
+
+    node: str
+    title: str
+    status: Literal["pending", "running", "completed", "skipped", "failed"] = "completed"
+    detail: str = ""
+    tool: str = ""
+    duration_ms: int = 0
+    evidence_count: int = 0
+    graph_paths: int = 0
+
+
+class Critique(BaseModel):
+    """The critic's verdict on a draft answer."""
+
+    verdict: Literal["pass", "qualify"] = "pass"
+    unsupported_claims: list[str] = Field(default_factory=list)
+    contradictions: list[str] = Field(default_factory=list)
+    missing_evidence: list[str] = Field(default_factory=list)
+    notes: str = ""

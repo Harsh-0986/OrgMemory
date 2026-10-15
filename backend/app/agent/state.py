@@ -12,7 +12,24 @@ from typing import Annotated, Any, Literal, TypedDict
 
 from pydantic import BaseModel, Field
 
-from app.models.graph import Evidence, GraphPath, ImpactedService, NodeRef, Recommendation
+from app.models.graph import (
+    Critique,
+    Evidence,
+    ExecutionStep,
+    GraphPath,
+    ImpactedService,
+    NodeRef,
+    Recommendation,
+)
+
+__all__ = [
+    "Critique",
+    "ExecutionStep",
+    "InvestigationPlan",
+    "InvestigationState",
+    "QuestionIntent",
+    "new_state",
+]
 
 QuestionIntent = Literal[
     "replacement",  # "can we swap service X for Y"
@@ -24,19 +41,6 @@ QuestionIntent = Literal[
 ]
 
 
-class ExecutionStep(BaseModel):
-    """One observable step of the workflow, surfaced directly in the UI."""
-
-    node: str
-    title: str
-    status: Literal["pending", "running", "completed", "skipped", "failed"] = "completed"
-    detail: str = ""
-    tool: str = ""
-    duration_ms: int = 0
-    evidence_count: int = 0
-    graph_paths: int = 0
-
-
 class InvestigationPlan(BaseModel):
     """Output of the planner node. Constrained to keep retrieval bounded."""
 
@@ -46,16 +50,6 @@ class InvestigationPlan(BaseModel):
     focus: list[str] = Field(default_factory=list)
     rationale: str = ""
     uses_llm: bool = False
-
-
-class Critique(BaseModel):
-    """Output of the critic node."""
-
-    verdict: Literal["pass", "qualify"] = "pass"
-    unsupported_claims: list[str] = Field(default_factory=list)
-    contradictions: list[str] = Field(default_factory=list)
-    missing_evidence: list[str] = Field(default_factory=list)
-    notes: str = ""
 
 
 class InvestigationState(TypedDict, total=False):
