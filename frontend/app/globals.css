@@ -1,37 +1,130 @@
 @import "tailwindcss";
 
 /*
- * OrgMemory renders a single dark surface. The palette is pinned here rather
- * than following `prefers-color-scheme`, because the graph view uses a dark
- * canvas and a light-mode flip would wash out the node colours and edge
- * contrast that the explanation depends on.
- */
-:root {
-  --background: #020617;
-  --foreground: #e2e8f0;
-}
+  "Survey plate" - an engineering assessment document with figures.
+
+  The product's promise is "we don't guess, here's where it came from", so the
+  page is built to be read like a technical document: paper, hairline rules,
+  serif for the answer prose. The one deliberate counterpoint is the dependency
+  graph, rendered as a plate - the figure in the report.
+
+  Colour is defined once as semantic tokens and flipped per theme, so a single
+  set of component classes serves both. The plate always contrasts with its
+  surround: a dark figure on paper, and a raised surface in the dark theme
+  (a white plate would be blinding).
+*/
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-page: var(--c-page);
+  --color-page-raised: var(--c-page-raised);
+  --color-ink: var(--c-ink);
+  --color-ink-soft: var(--c-ink-soft);
+  --color-ink-faint: var(--c-ink-faint);
+  --color-rule: var(--c-rule);
+  --color-rule-soft: var(--c-rule-soft);
+
+  --color-plate: var(--c-plate);
+  --color-plate-raised: var(--c-plate-raised);
+  --color-plate-rule: var(--c-plate-rule);
+
+  --color-signal: var(--c-signal);
+  --color-signal-wash: var(--c-signal-wash);
+  --color-verify: var(--c-verify);
+  --color-verify-wash: var(--c-verify-wash);
+  --color-link: var(--c-link);
+  --color-link-soft: var(--c-link-soft);
+
+  --font-prose: var(--font-spectral), Georgia, serif;
+  --font-ui: var(--font-plex-sans), system-ui, sans-serif;
+  --font-mono: var(--font-plex-mono), ui-monospace, monospace;
+
+  --radius-plate: 2px;
 }
 
-html {
+/* -- Light: warm grey paper, ink navy-graphite ------------------------- */
+:root {
+  --c-page: #edebe6;
+  --c-page-raised: #f4f2ee;
+  --c-ink: #191e24;
+  --c-ink-soft: #5a636e;
+  --c-ink-faint: #8b9199;
+  --c-rule: #c6c3bc;
+  --c-rule-soft: #dedbd5;
+
+  --c-plate: #171c22;
+  --c-plate-raised: #1f252d;
+  --c-plate-rule: #39424d;
+
+  /* Oxide red for risk and unknowns; teal for what the graph confirmed.
+     These carry meaning, never decoration. */
+  --c-signal: #a8392b;
+  --c-signal-wash: #f2e0dd;
+  --c-verify: #2e6b5e;
+  --c-verify-wash: #e2ece8;
+  --c-link: #1f4e79;
+  --c-link-soft: #dfe7ef;
+
+  color-scheme: light;
+}
+
+/* -- Dark: deep ink ground, plate raised rather than inverted ---------- */
+[data-theme="dark"] {
+  --c-page: #13171c;
+  --c-page-raised: #1a1f25;
+  --c-ink: #e4e8ec;
+  --c-ink-soft: #a3adb8;
+  --c-ink-faint: #6e7883;
+  --c-rule: #333c46;
+  --c-rule-soft: #262d35;
+
+  --c-plate: #1c2229;
+  --c-plate-raised: #232a32;
+  --c-plate-rule: #39424d;
+
+  --c-signal: #e0837a;
+  --c-signal-wash: #3a2320;
+  --c-verify: #74c3ae;
+  --c-verify-wash: #1c332e;
+  --c-link: #8fb8dd;
+  --c-link-soft: #26333f;
+
   color-scheme: dark;
 }
 
+html,
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  background: var(--c-page);
+  color: var(--c-ink);
 }
 
-/* Keep keyboard focus obvious: the dashboard is fully keyboard navigable. */
+body {
+  font-family: var(--font-ui);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* Keyboard focus has to be obvious on a page this dense. */
 :focus-visible {
-  outline: 2px solid #38bdf8;
+  outline: 2px solid var(--c-link);
   outline-offset: 2px;
+}
+
+/* One orchestrated moment: the answer rises once when it arrives. The only
+   non-interactive motion on the page — a per-card entrance on every section
+   reads as generated. */
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.animate-rise {
+  animation: rise 420ms cubic-bezier(0.22, 0.8, 0.3, 1) both;
 }
 
 @media (prefers-reduced-motion: reduce) {

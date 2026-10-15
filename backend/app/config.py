@@ -34,8 +34,15 @@ class Settings(BaseSettings):
     # `NoDecode` stops pydantic-settings running `json.loads` on this before
     # the validator below. Without it, a plain `CORS_ORIGINS=http://localhost:3000`
     # dies on the colon, which is exactly what `.env.example` tells people to write.
+    #
+    # Both `localhost` and `127.0.0.1` are allowed by default. They are
+    # distinct origins to a browser, and a developer who opens the second one
+    # would otherwise get a silently non-functional dashboard.
     cors_origins: Annotated[list[str], NoDecode] = Field(
-        default_factory=lambda: ["http://localhost:3000"]
+        default_factory=lambda: [
+            "http://localhost:3000",
+            "http://127.0.0.1:3000",
+        ]
     )
 
     # -- FalkorDB ---------------------------------------------------------
@@ -60,13 +67,16 @@ class Settings(BaseSettings):
     # -- LLM (NVIDIA NIM, OpenAI-compatible) ------------------------------
     nvidia_api_key: str = ""
     nvidia_base_url: str = "https://integrate.api.nvidia.com/v1"
-    nvidia_model: str = "nvidia/nemotron-3-super-120b-a12b"
+    nvidia_model: str = "z-ai/glm-5.3-flash"
     nvidia_temperature: float = 0.0
     nvidia_max_tokens: int = 2048
 
     # -- Agent execution limits ------------------------------------------
     agent_max_steps: int = Field(default=8, ge=1, le=50)
-    agent_max_tool_calls: int = Field(default=12, ge=1, le=100)
+    # Sized to let the primary demo complete its full query set. The bound still
+    # exists to stop a confused agent looping, not to cripple a real run - at 12
+    # the demo exhausted the budget and skipped most of its own queries.
+    agent_max_tool_calls: int = Field(default=24, ge=1, le=100)
     agent_max_recursion: int = Field(default=25, ge=5, le=200)
     agent_query_timeout_seconds: float = Field(default=15.0, gt=0)
 

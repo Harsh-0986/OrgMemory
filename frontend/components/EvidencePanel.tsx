@@ -1,11 +1,11 @@
 "use client";
 
 /**
- * Evidence records, incidents, decisions and documents.
+ * Evidence, as a log of records rather than a stack of cards.
  *
- * Caveats are given equal visual weight to findings. A tool that reports
- * "no cause recorded" is as important to surface as one that reports a
- * dependency, and burying it would defeat the point of the product.
+ * Two things get equal visual weight with findings: a recorded cause, and the
+ * absence of one. "Cause not recorded" is a real result, and an interface that
+ * treats it as empty space teaches the reader to miss it.
  */
 
 import { useState } from "react";
@@ -20,14 +20,8 @@ interface EvidencePanelProps {
   onSelect: (id: string | null) => void;
 }
 
-const TABS = ["Evidence", "Incidents", "Decisions", "Documents"] as const;
+const TABS = ["Records", "Incidents", "Decisions", "Documents"] as const;
 type Tab = (typeof TABS)[number];
-
-const CONFIDENCE: Record<string, string> = {
-  confirmed: "bg-emerald-500/15 text-emerald-300",
-  inferred: "bg-amber-500/15 text-amber-300",
-  unknown: "bg-slate-600/30 text-slate-400",
-};
 
 export default function EvidencePanel({
   evidence,
@@ -37,10 +31,10 @@ export default function EvidencePanel({
   highlightedId,
   onSelect,
 }: EvidencePanelProps) {
-  const [tab, setTab] = useState<Tab>("Evidence");
+  const [tab, setTab] = useState<Tab>("Records");
 
   const counts: Record<Tab, number> = {
-    Evidence: evidence.length,
+    Records: evidence.length,
     Incidents: incidents.length,
     Decisions: decisions.length,
     Documents: documents.length,
@@ -48,195 +42,210 @@ export default function EvidencePanel({
 
   return (
     <div>
-      <div className="flex flex-wrap gap-1 border-b border-slate-800">
+      <div className="flex gap-6 border-b border-rule">
         {TABS.map((name) => (
           <button
             key={name}
             type="button"
             onClick={() => setTab(name)}
             className={[
-              "-mb-px border-b-2 px-3 py-2 text-xs transition",
+              "-mb-px border-b-[1.5px] pb-2 font-ui text-sm transition",
               tab === name
-                ? "border-sky-400 text-slate-100"
-                : "border-transparent text-slate-500 hover:text-slate-300",
+                ? "border-ink text-ink"
+                : "border-transparent text-ink-faint hover:text-ink-soft",
             ].join(" ")}
           >
             {name}
-            <span className="ml-1.5 text-slate-600">{counts[name]}</span>
+            <span className="ml-1.5 font-mono text-[0.7rem] text-ink-faint">
+              {counts[name]}
+            </span>
           </button>
         ))}
       </div>
 
-      <div className="pt-3">
-        {tab === "Evidence" &&
-          (evidence.length === 0 ? (
-            <Empty text="No evidence records were retrieved." />
-          ) : (
-            <ul className="space-y-2">
-              {evidence.map((record) => (
-                <li key={record.evidence_id} className="rounded-lg border border-slate-800 bg-slate-900/50 p-3">
-                  <div className="flex items-start justify-between gap-2">
-                    <p className="text-sm leading-relaxed text-slate-300">{record.summary}</p>
-                    <span
-                      className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] ${
-                        CONFIDENCE[record.confidence] ?? CONFIDENCE.unknown
-                      }`}
-                    >
-                      {record.confidence}
-                    </span>
-                  </div>
+      <div className="pt-4">
+        {tab === "Records" && (
+          <div className="space-y-4">
+            {evidence.length === 0 && <Empty text="No evidence records were retrieved." />}
+            {evidence.map((record) => (
+              <article key={record.evidence_id} className="border-l border-rule pl-4">
+                <p className="font-prose text-[0.95rem] text-ink">{record.summary}</p>
 
-                  {record.source_ids.length > 0 && (
-                    <div className="mt-2 flex flex-wrap gap-1">
-                      {record.source_ids.slice(0, 12).map((id) => {
-                        const active = highlightedId === id;
-                        return (
-                          <button
-                            key={id}
-                            type="button"
-                            onClick={() => onSelect(active ? null : id)}
-                            className={[
-                              "rounded px-1.5 py-0.5 font-mono text-[10px] transition",
-                              active
-                                ? "bg-sky-400 text-slate-950"
-                                : "bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-slate-200",
-                            ].join(" ")}
-                          >
-                            {id}
-                          </button>
-                        );
-                      })}
-                    </div>
+                <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1.5">
+                  <span
+                    className={[
+                      "font-ui text-[0.7rem]",
+                      record.confidence === "confirmed" ? "text-verify" : "text-ink-faint",
+                    ].join(" ")}
+                  >
+                    {record.confidence}
+                  </span>
+                  {record.tool && (
+                    <span className="font-mono text-[0.68rem] text-ink-faint">{record.tool}</span>
                   )}
-
-                  {record.caveats.map((caveat) => (
-                    <p
-                      key={caveat}
-                      className="mt-2 rounded border border-amber-500/30 bg-amber-500/10 px-2 py-1 text-xs text-amber-200"
-                    >
-                      {caveat}
-                    </p>
-                  ))}
-                </li>
-              ))}
-            </ul>
-          ))}
-
-        {tab === "Incidents" &&
-          (incidents.length === 0 ? (
-            <Empty text="No incidents are recorded against these services." />
-          ) : (
-            <ul className="space-y-2">
-              {incidents.map((incident) => (
-                <li key={`${incident.id}-${incident.service_id}`} className="rounded-lg border border-slate-800 bg-slate-900/50 p-3">
-                  <div className="flex items-start justify-between gap-2">
-                    <p className="text-sm text-slate-200">{incident.title}</p>
-                    <span className="shrink-0 rounded bg-slate-800 px-1.5 py-0.5 text-[10px] text-slate-300">
-                      {incident.severity}
-                    </span>
-                  </div>
-                  <p className="mt-1 font-mono text-[10px] text-slate-500">
-                    {incident.id} · {incident.occurred_at?.slice(0, 10)} · affected{" "}
-                    {incident.service_name}
-                  </p>
-                  <p className="mt-1.5 text-xs leading-relaxed text-slate-400">{incident.summary}</p>
-
-                  <p className="mt-2 text-xs">
-                    {incident.cause_names.length > 0 ? (
-                      <span className="text-slate-400">
-                        Caused by{" "}
-                        {incident.cause_names.map((name, i) => (
-                          <span key={name}>
-                            {i > 0 && ", "}
-                            <span className="text-slate-200">{name}</span>
-                          </span>
-                        ))}
-                      </span>
-                    ) : (
-                      <span className="rounded border border-slate-700 bg-slate-800/60 px-2 py-0.5 text-slate-300">
-                        Cause not recorded in the graph
-                      </span>
-                    )}
-                  </p>
-
-                  {incident.resolver_names.length > 0 && (
-                    <p className="mt-1.5 text-xs text-slate-500">
-                      Resolved by {incident.resolver_names.join(", ")}
-                    </p>
-                  )}
-                </li>
-              ))}
-            </ul>
-          ))}
-
-        {tab === "Decisions" &&
-          (decisions.length === 0 ? (
-            <Empty text="No architecture decisions are recorded for these services." />
-          ) : (
-            <ul className="space-y-2">
-              {decisions.map((decision) => (
-                <li key={`${decision.id}-${decision.service_id}`} className="rounded-lg border border-slate-800 bg-slate-900/50 p-3">
-                  <div className="flex items-start justify-between gap-2">
-                    <p className="text-sm text-slate-200">{decision.title}</p>
-                    <span
+                  {record.source_ids.slice(0, 10).map((id) => (
+                    <button
+                      key={id}
+                      type="button"
+                      onClick={() => onSelect(highlightedId === id ? null : id)}
                       className={[
-                        "shrink-0 rounded px-1.5 py-0.5 text-[10px]",
-                        decision.status === "accepted"
-                          ? "bg-emerald-500/15 text-emerald-300"
-                          : decision.status === "superseded"
-                            ? "bg-slate-600/30 text-slate-400 line-through"
-                            : "bg-amber-500/15 text-amber-300",
+                        "font-mono text-[0.68rem] underline decoration-dotted underline-offset-2 transition",
+                        highlightedId === id
+                          ? "bg-link text-paper"
+                          : "text-link/70 hover:text-link",
                       ].join(" ")}
                     >
-                      {decision.status}
+                      {id}
+                    </button>
+                  ))}
+                  {record.source_ids.length > 10 && (
+                    <span className="font-mono text-[0.68rem] text-ink-faint">
+                      +{record.source_ids.length - 10} more
                     </span>
-                  </div>
-                  <p className="mt-1 font-mono text-[10px] text-slate-500">
-                    {decision.id} · {decision.date} · {decision.service_name}
-                  </p>
-                  <p className="mt-1.5 text-xs leading-relaxed text-slate-400">{decision.rationale}</p>
-                  {decision.superseded_by_titles.filter(Boolean).length > 0 && (
-                    <p className="mt-2 rounded border border-violet-500/30 bg-violet-500/10 px-2 py-1 text-xs text-violet-200">
-                      Superseded by {decision.superseded_by_titles.filter(Boolean).join(", ")}
-                    </p>
                   )}
-                </li>
-              ))}
-            </ul>
-          ))}
+                </div>
 
-        {tab === "Documents" &&
-          (documents.length === 0 ? (
-            <Empty text="No documents are linked to these entities." />
-          ) : (
-            <ul className="space-y-2">
-              {documents.map((doc) => (
-                <li key={`${doc.id}-${doc.entity_id}-${doc.relation_type}`} className="rounded-lg border border-slate-800 bg-slate-900/50 p-3">
-                  <p className="text-sm text-slate-200">{doc.title}</p>
-                  <p className="mt-1 font-mono text-[10px] text-slate-500">
-                    {doc.id} · {doc.source_type} · {doc.relation_type.toLowerCase()}{" "}
-                    {doc.entity_name}
+                {record.caveats.map((caveat) => (
+                  <p
+                    key={caveat}
+                    className="mt-2 bg-signal-wash px-2 py-1 font-ui text-xs text-signal"
+                  >
+                    {caveat}
                   </p>
-                  <p className="mt-1.5 text-xs leading-relaxed text-slate-400">{doc.content}</p>
+                ))}
+              </article>
+            ))}
+          </div>
+        )}
+
+        {tab === "Incidents" && (
+          <div className="divide-y divide-rule-soft">
+            {incidents.length === 0 && (
+              <Empty text="No incidents are recorded against these services." />
+            )}
+            {incidents.map((incident) => (
+              <article
+                key={`${incident.id}-${incident.service_id}`}
+                className="py-4 first:pt-0"
+              >
+                <div className="flex flex-wrap items-baseline justify-between gap-x-3">
+                  <h4 className="font-ui text-[0.95rem] font-medium text-ink">
+                    {incident.title}
+                  </h4>
+                  <span
+                    className={[
+                      "font-mono text-[0.7rem]",
+                      incident.severity === "sev1" ? "text-signal" : "text-ink-soft",
+                    ].join(" ")}
+                  >
+                    {incident.severity}
+                  </span>
+                </div>
+
+                <p className="mt-1 font-mono text-[0.68rem] text-ink-faint">
+                  {incident.id} · {incident.occurred_at?.slice(0, 10)} · {incident.service_name}
+                </p>
+                <p className="mt-2 max-w-[70ch] font-prose text-sm leading-relaxed text-ink-soft">
+                  {incident.summary}
+                </p>
+
+                <p className="mt-2.5 font-ui text-xs">
+                  {incident.cause_names.length > 0 ? (
+                    <span className="text-ink-faint">
+                      Caused by <span className="text-ink">{incident.cause_names.join(", ")}</span>
+                    </span>
+                  ) : (
+                    <span className="bg-signal-wash px-1.5 py-0.5 text-signal">
+                      Cause not recorded in the graph
+                    </span>
+                  )}
+                </p>
+
+                {incident.resolver_names.length > 0 && (
+                  <p className="mt-1.5 font-ui text-xs text-ink-faint">
+                    Resolved by {incident.resolver_names.join(", ")}
+                  </p>
+                )}
+              </article>
+            ))}
+          </div>
+        )}
+
+        {tab === "Decisions" && (
+          <ol className="space-y-5">
+            {decisions.length === 0 && (
+              <Empty text="No architecture decisions are recorded for these services." />
+            )}
+            {decisions.map((decision) => (
+              <li
+                key={`${decision.id}-${decision.service_id}`}
+                className="border-l border-rule pl-4"
+              >
+                <div className="flex flex-wrap items-baseline justify-between gap-x-3">
+                  <h4
+                    className={[
+                      "font-ui text-[0.95rem] font-medium",
+                      decision.status === "superseded" ? "text-ink-faint line-through" : "text-ink",
+                    ].join(" ")}
+                  >
+                    {decision.title}
+                  </h4>
+                  <span className="font-mono text-[0.7rem] text-ink-faint">{decision.date}</span>
+                </div>
+
+                <p className="mt-1 font-mono text-[0.68rem] text-ink-faint">
+                  {decision.id} · {decision.service_name} · {decision.status}
+                </p>
+                <p className="mt-2 max-w-[70ch] font-prose text-sm leading-relaxed text-ink-soft">
+                  {decision.rationale}
+                </p>
+
+                {decision.superseded_by_titles.filter(Boolean).length > 0 && (
+                  <p className="mt-2 font-ui text-xs text-verify">
+                    Superseded by {decision.superseded_by_titles.filter(Boolean).join(", ")}
+                  </p>
+                )}
+              </li>
+            ))}
+          </ol>
+        )}
+
+        {tab === "Documents" && (
+          <ul className="space-y-4">
+            {documents.length === 0 && (
+              <Empty text="No documents are linked to these entities." />
+            )}
+            {documents.map((doc) => (
+              <li key={`${doc.id}-${doc.entity_id}-${doc.relation_type}`} className="border-l border-rule pl-4">
+                <div className="flex flex-wrap items-baseline justify-between gap-x-3">
+                  <h4 className="font-ui text-[0.95rem] font-medium text-ink">{doc.title}</h4>
                   {doc.source_uri && (
                     <a
                       href={doc.source_uri}
                       target="_blank"
                       rel="noreferrer"
-                      className="mt-2 inline-block text-xs text-sky-400 hover:text-sky-300"
+                      className="font-ui text-xs text-link underline decoration-dotted underline-offset-2 hover:decoration-link"
                     >
-                      Open source ↗
+                      Open source
                     </a>
                   )}
-                </li>
-              ))}
-            </ul>
-          ))}
+                </div>
+                <p className="mt-1 font-mono text-[0.68rem] text-ink-faint">
+                  {doc.id} · {doc.source_type} · {doc.relation_type.toLowerCase()}{" "}
+                  {doc.entity_name}
+                </p>
+                <p className="mt-2 max-w-[70ch] font-prose text-sm leading-relaxed text-ink-soft">
+                  {doc.content}
+                </p>
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
     </div>
   );
 }
 
 function Empty({ text }: { text: string }) {
-  return <p className="py-4 text-sm text-slate-500">{text}</p>;
+  return <p className="font-ui text-sm leading-relaxed text-ink-soft">{text}</p>;
 }

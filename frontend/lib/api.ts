@@ -29,19 +29,37 @@ export class ApiRequestError extends Error {
   }
 }
 
+/** Abort a request that hangs, so the UI can never sit on a spinner forever. */
+const REQUEST_TIMEOUT_MS = 90_000;
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+
   let response: Response;
   try {
     response = await fetch(`${API_BASE_URL}${path}`, {
       ...init,
+      signal: controller.signal,
       headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
     });
-  } catch {
+  } catch (err) {
+    // An aborted request is indistinguishable from a hung one to a user, and
+    // both deserve a readable message rather than a raw TypeError.
+    if (err instanceof DOMException && err.name === "AbortError") {
+      throw new ApiRequestError(
+        "The request timed out. The backend may be slow or unreachable.",
+        "timeout",
+        0,
+      );
+    }
     throw new ApiRequestError(
-      `Could not reach the OrgMemory API at ${API_BASE_URL}. Is the backend running?`,
+      `Could not reach the OrgMemory API at ${API_BASE_URL}. Is the backend running, and does its CORS_ORIGINS include this page's origin?`,
       "network_error",
       0,
     );
+  } finally {
+    clearTimeout(timer);
   }
 
   if (!response.ok) {

@@ -1,12 +1,15 @@
 "use client";
 
 /**
- * Interactive SVG graph of the retrieved subgraph.
+ * The dependency graph, as a dark plate inset in the light document.
  *
- * Deliberately dependency-free: the layout comes from `lib/force.ts`, so the
- * only rendering work is SVG. Nodes can be dragged, and clicking a node (or a
- * citation chip elsewhere on the page) focuses it and highlights the dependency
- * paths that pass through it.
+ * This is the one element on the page allowed its own surface, because it is
+ * the one thing that is genuinely a different kind of object - a plotted
+ * figure rather than a paragraph. Everything else stays on paper.
+ *
+ * Layout comes from `lib/force.ts`, so there is no plotting dependency, and it
+ * is seeded deterministically: the same investigation renders identically every
+ * time, which matters when you are demoing.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -34,20 +37,15 @@ export default function GraphCanvas({
   paths,
   highlightedId,
   onSelect,
-  height = 420,
+  height = 460,
 }: GraphCanvasProps) {
   const [width, setWidth] = useState(720);
   const wrapRef = useRef<HTMLDivElement>(null);
-  /**
-   * Only user-driven node positions live in state. Laid-out positions are
-   * derived in the `useMemo` below rather than mirrored into state through an
-   * effect, which would cascade a render on every layout change.
-   */
+  /** Only user-dragged positions are state; the rest is derived. */
   const [dragged, setDragged] = useState<Record<string, { x: number; y: number }>>({});
   const dragRef = useRef<{ id: string; offsetX: number; offsetY: number } | null>(null);
   const svgRef = useRef<SVGSVGElement>(null);
 
-  // Responsive width without a resize library.
   useEffect(() => {
     const element = wrapRef.current;
     if (!element) return;
@@ -60,16 +58,10 @@ export default function GraphCanvas({
   }, []);
 
   const layout = useMemo(() => {
-    if (nodes.length === 0) {
-      return { nodes: [], edges: [], width, height };
-    }
-    const uniqueNodes = Array.from(
-      new Map(nodes.map((n) => [n.id, n])).values(),
-    );
+    if (nodes.length === 0) return { nodes: [], edges: [], width, height };
+    const uniqueNodes = Array.from(new Map(nodes.map((n) => [n.id, n])).values());
     const edgeList = Array.from(
-      new Map(
-        edges.map((e) => [`${e.type}:${e.from_id}->${e.to_id}`, e] as const),
-      ).values(),
+      new Map(edges.map((e) => [`${e.type}:${e.from_id}->${e.to_id}`, e] as const)).values(),
     );
     return computeLayout(
       uniqueNodes,
@@ -79,7 +71,6 @@ export default function GraphCanvas({
     );
   }, [nodes, edges, width, height]);
 
-  // Final positions: the computed layout with any dragged node pinned on top.
   const positions = useMemo(() => {
     const map: Record<string, LayoutNode> = {};
     for (const node of layout.nodes) {
@@ -89,7 +80,6 @@ export default function GraphCanvas({
     return map;
   }, [layout, dragged]);
 
-  // Edges follow the same positions so a dragged node drags its edges too.
   const drawnEdges = useMemo(
     () =>
       layout.edges
@@ -102,7 +92,7 @@ export default function GraphCanvas({
     [layout.edges, positions],
   );
 
-  /** Ids that participate in a highlighted path or the focused node. */
+  /** Ids implicated by the focus, or by the paths that support the answer. */
   const focusIds = useMemo(() => {
     const ids = new Set<string>();
     if (highlightedId) {
@@ -114,9 +104,7 @@ export default function GraphCanvas({
     }
     for (const path of paths) {
       const touches = path.nodes.some((n) => n.id === highlightedId);
-      if (!highlightedId || touches) {
-        path.nodes.forEach((n) => ids.add(n.id));
-      }
+      if (!highlightedId || touches) path.nodes.forEach((n) => ids.add(n.id));
     }
     return ids;
   }, [highlightedId, paths, edges]);
@@ -146,15 +134,11 @@ export default function GraphCanvas({
     }));
   };
 
-  const handlePointerUp = () => {
-    dragRef.current = null;
-  };
-
   if (nodes.length === 0) {
     return (
       <div
         ref={wrapRef}
-        className="flex items-center justify-center rounded-xl border border-dashed border-slate-700 bg-slate-900/40 text-sm text-slate-500"
+        className="flex items-center justify-center bg-plate text-sm text-plate-rule"
         style={{ height }}
       >
         No graph retrieved for this question yet.
@@ -166,46 +150,31 @@ export default function GraphCanvas({
   const legendTypes = Array.from(new Set(nodes.map((n) => n.type)));
 
   return (
-    <div ref={wrapRef} className="space-y-3">
+    <div ref={wrapRef} className="bg-plate">
       <svg
         ref={svgRef}
         viewBox={`0 0 ${width} ${height}`}
-        className="w-full touch-none rounded-xl border border-slate-800 bg-slate-950"
+        className="w-full touch-none"
         style={{ height }}
         onPointerMove={handlePointerMove}
-        onPointerUp={handlePointerUp}
-        onPointerLeave={handlePointerUp}
+        onPointerUp={() => (dragRef.current = null)}
+        onPointerLeave={() => (dragRef.current = null)}
         role="img"
         aria-label={`Dependency graph with ${nodes.length} nodes and ${edges.length} edges`}
       >
         <defs>
-          <marker
-            id="arrow"
-            viewBox="0 0 10 10"
-            refX="9"
-            refY="5"
-            markerWidth="5"
-            markerHeight="5"
-            orient="auto-start-reverse"
-          >
-            <path d="M 0 0 L 10 5 L 0 10 z" fill="#475569" />
+          <marker id="plate-arrow" viewBox="0 0 10 10" refX="9" refY="5"
+                  markerWidth="5" markerHeight="5" orient="auto-start-reverse">
+            <path d="M 0 0 L 10 5 L 0 10 z" fill="#4a5563" />
           </marker>
-          <marker
-            id="arrow-hi"
-            viewBox="0 0 10 10"
-            refX="9"
-            refY="5"
-            markerWidth="5"
-            markerHeight="5"
-            orient="auto-start-reverse"
-          >
-            <path d="M 0 0 L 10 5 L 0 10 z" fill="#38bdf8" />
+          <marker id="plate-arrow-hi" viewBox="0 0 10 10" refX="9" refY="5"
+                  markerWidth="5" markerHeight="5" orient="auto-start-reverse">
+            <path d="M 0 0 L 10 5 L 0 10 z" fill="#8fb8dd" />
           </marker>
         </defs>
 
-        {/* Edges */}
         {drawnEdges.map((edge) => {
-          const highlighted = isDimmed && focusIds.has(edge.source.id) && focusIds.has(edge.target.id);
+          const lit = isDimmed && focusIds.has(edge.source.id) && focusIds.has(edge.target.id);
           return (
             <line
               key={`${edge.type}-${edge.source.id}-${edge.target.id}`}
@@ -213,19 +182,18 @@ export default function GraphCanvas({
               y1={edge.source.y}
               x2={edge.target.x}
               y2={edge.target.y}
-              stroke={highlighted ? "#38bdf8" : "#334155"}
-              strokeWidth={highlighted ? 2 : 1}
-              strokeOpacity={isDimmed && !highlighted ? 0.25 : 0.9}
-              markerEnd={highlighted ? "url(#arrow-hi)" : "url(#arrow)"}
+              stroke={lit ? "#8fb8dd" : "#39424d"}
+              strokeWidth={lit ? 1.4 : 0.8}
+              strokeOpacity={isDimmed && !lit ? 0.22 : 0.85}
+              markerEnd={lit ? "url(#plate-arrow-hi)" : "url(#plate-arrow)"}
             />
           );
         })}
 
-        {/* Nodes */}
         {layout.nodes.map((node) => {
           const active = focusIds.has(node.id);
           const dimmed = isDimmed && !active;
-          const isFocused = highlightedId === node.id;
+          const focused = highlightedId === node.id;
           const r = nodeRadius(node.type);
           return (
             <g
@@ -233,25 +201,26 @@ export default function GraphCanvas({
               transform={`translate(${node.x}, ${node.y})`}
               className="cursor-grab"
               onPointerDown={(e) => handlePointerDown(e, node.id)}
-              onClick={() => onSelect?.(isFocused ? null : node.id)}
-              opacity={dimmed ? 0.3 : 1}
+              onClick={() => onSelect?.(focused ? null : node.id)}
+              opacity={dimmed ? 0.26 : 1}
             >
-              {isFocused && (
-                <circle r={r + 7} fill="none" stroke="#38bdf8" strokeWidth={2} opacity={0.8} />
+              {focused && (
+                <circle r={r + 7} fill="none" stroke="#8fb8dd" strokeWidth={1.5} opacity={0.75} />
               )}
               <circle
                 r={r}
                 fill={nodeColor(node.type)}
-                fillOpacity={0.22}
+                fillOpacity={focused ? 0.34 : 0.16}
                 stroke={nodeColor(node.type)}
-                strokeWidth={isFocused ? 2.5 : 1.5}
+                strokeWidth={focused ? 2 : 1.2}
               />
               <text
-                y={r + 13}
+                y={r + 12}
                 textAnchor="middle"
                 className="pointer-events-none select-none"
-                fontSize="10"
-                fill="#cbd5e1"
+                fontSize="9.5"
+                fontFamily="var(--font-plex-sans)"
+                fill="#cbd2d9"
               >
                 {labelFor(node.name, node.id)}
               </text>
@@ -260,18 +229,18 @@ export default function GraphCanvas({
         })}
       </svg>
 
-      <div className="flex flex-wrap items-center gap-3 text-[11px] text-slate-400">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 border-t border-plate-rule px-3 py-2">
         {legendTypes.map((type) => (
-          <span key={type} className="flex items-center gap-1.5">
+          <span key={type} className="flex items-center gap-1.5 font-ui text-[0.68rem] text-plate-rule">
             <span
-              className="inline-block h-2.5 w-2.5 rounded-full"
+              className="h-1.5 w-1.5 rounded-full"
               style={{ backgroundColor: nodeColor(type) }}
             />
             {type}
           </span>
         ))}
-        <span className="ml-auto text-slate-500">
-          Drag to rearrange · click a node to focus
+        <span className="ml-auto font-ui text-[0.68rem] text-plate-rule/70">
+          drag to rearrange · click a node to focus
         </span>
       </div>
     </div>

@@ -633,15 +633,60 @@ def render_evidence(state: InvestigationState) -> str:
 
 
 def _known_ids(state: InvestigationState) -> set[str]:
-    """Every entity id the retrieval actually produced."""
+    """Every entity id this investigation legitimately retrieved.
+
+    This is the critic's whitelist, so it must be complete: an id missing here
+    produces a false "unsupported claim" on a perfectly grounded answer, and a
+    critic that cries wolf is worse than no critic.
+
+    The first draft only read evidence `source_ids`, which quietly omitted the
+    subject service (impact traversal returns *downstream* services, never the
+    one being asked about) and the project ids behind engineer history. Both are
+    legitimately citable.
+    """
     ids: set[str] = set()
+
     for record in state.get("evidence") or []:
         ids.update(record.source_ids)
         ids.update(node.id for node in record.entities)
+
+    # The premise of the question is itself grounded.
+    for key in ("resolved_subject", "resolved_comparison"):
+        node = state.get(key)
+        if node is not None:
+            ids.add(node.id)
+
     for item in state.get("impacted") or []:
         ids.add(item.service.id)
+        ids.update(owner.id for owner in item.owners)
+
     for row in state.get("engineers") or []:
-        ids.add(row.get("person_id", ""))
+        ids.update(
+            {row.get("person_id", ""), row.get("project_id", ""), row.get("service_id", "")}
+        )
+
+    for row in state.get("incidents") or []:
+        ids.add(row.get("id", ""))
+        ids.update(row.get("cause_ids") or [])
+        ids.update(row.get("resolver_ids") or [])
+
+    for row in state.get("decisions") or []:
+        ids.add(row.get("id", ""))
+        ids.update(row.get("superseded_by_ids") or [])
+
+    for row in state.get("documents") or []:
+        ids.update({row.get("id", ""), row.get("entity_id", "")})
+
+    for row in state.get("shared_dependencies") or []:
+        ids.add(row.get("id", ""))
+
+    for rows in (state.get("upstream") or {}).values():
+        for row in rows:
+            ids.add(row.get("id", ""))
+
+    for row in state.get("recalled") or []:
+        ids.add(row.get("id", ""))
+
     return {i for i in ids if i}
 
 
@@ -965,7 +1010,8 @@ def _deterministic_answer(state: InvestigationState) -> str:
     if recommendations:
         lines = ["## Recommended next steps\n"]
         for idx, rec in enumerate(recommendations, start=1):
-            lines.append(f"{idx}. {rec.action} _{rec.rationale}_")
+            lines.append(f"{idx}. {rec.action}")
+            lines.append(f"   {rec.rationale}")
             if rec.suggested_reviewers:
                 names = ", ".join(
                     f"{p.name} `{p.id}`" for p in rec.suggested_reviewers[:5]

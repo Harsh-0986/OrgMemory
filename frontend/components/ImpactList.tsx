@@ -1,14 +1,15 @@
 "use client";
 
 /**
- * Impacted services, ordered by hop distance then criticality.
+ * Blast radius, ranked by hop distance.
  *
- * The hop count is the whole point of this panel: "directly affected" and
- * "affected through two other systems" are very different statements about
- * risk, and the graph is what separates them.
+ * Depth is shown as indentation and a left rule rather than as a badge: the
+ * list should read as a tree descending from the service you changed, which is
+ * exactly what the graph says. A "3 hops" pill restates a number the layout
+ * already shows.
  */
 
-import type { ImpactedService, NodeRef } from "@/lib/types";
+import type { ImpactedService } from "@/lib/types";
 
 interface ImpactListProps {
   impacted: ImpactedService[];
@@ -16,71 +17,85 @@ interface ImpactListProps {
   onSelect: (id: string | null) => void;
 }
 
-const CRITICALITY: Record<string, string> = {
-  critical: "bg-rose-500/20 text-rose-300 border-rose-500/40",
-  high: "bg-amber-500/20 text-amber-300 border-amber-500/40",
-  medium: "bg-sky-500/20 text-sky-300 border-sky-500/40",
-  low: "bg-slate-500/20 text-slate-300 border-slate-500/40",
-  unproven: "bg-violet-500/20 text-violet-300 border-violet-500/40",
+/** Risk tone by criticality. These are the only two accents on the page. */
+const TONE: Record<string, string> = {
+  critical: "text-signal",
+  high: "text-signal/75",
+  unproven: "text-verify",
+  medium: "text-ink-soft",
+  low: "text-ink-faint",
 };
 
 export default function ImpactList({ impacted, highlightedId, onSelect }: ImpactListProps) {
   if (impacted.length === 0) {
     return (
-      <p className="text-sm text-slate-500">
+      <p className="font-ui text-sm leading-relaxed text-ink-soft">
         The graph records no downstream dependencies for this service.
       </p>
     );
   }
 
+  const maxDepth = Math.max(...impacted.map((i) => i.depth));
+
   return (
-    <div className="space-y-2">
+    <ul className="space-y-px">
       {impacted.map((item) => {
         const active = highlightedId === item.service.id;
+        // Each hop steps in one level and draws a rule down to its children.
+        const indent = 10 + (item.depth - 1) * 18;
+
         return (
-          <button
-            key={item.service.id}
-            type="button"
-            onClick={() => onSelect(active ? null : item.service.id)}
-            className={[
-              "w-full rounded-lg border px-3 py-2 text-left transition",
-              active
-                ? "border-sky-500 bg-sky-500/10"
-                : "border-slate-800 bg-slate-900/50 hover:border-slate-700",
-            ].join(" ")}
-          >
-            <div className="flex items-start justify-between gap-3">
-              <div className="min-w-0">
-                <p className="truncate text-sm text-slate-200">{item.service.name}</p>
-                <code className="font-mono text-[10px] text-slate-500">{item.service.id}</code>
-              </div>
-              <div className="flex shrink-0 items-center gap-1.5">
-                <span
-                  className={`rounded border px-1.5 py-0.5 text-[10px] ${
-                    CRITICALITY[item.criticality] ?? CRITICALITY.low
-                  }`}
-                >
-                  {item.criticality}
-                </span>
-                <span
-                  className="rounded bg-slate-800 px-1.5 py-0.5 text-[10px] text-slate-400"
-                  title={`${item.depth} dependency hop(s) from the changed service`}
-                >
-                  {item.depth} hop{item.depth === 1 ? "" : "s"}
-                </span>
-              </div>
-            </div>
-            {item.owners.length > 0 && (
-              <p className="mt-1.5 text-xs text-slate-400">
-                Owner: {item.owners.map((o: NodeRef) => o.name).join(", ")}
+          <li key={item.service.id} style={{ paddingLeft: indent }}>
+            <button
+              type="button"
+              onClick={() => onSelect(active ? null : item.service.id)}
+              className={[
+                "group -ml-1 flex w-[calc(100%+0.25rem)] items-baseline gap-x-2.5 rounded-[2px] px-1 py-[0.3rem] text-left transition",
+                active ? "bg-link-soft" : "hover:bg-paper-raised",
+              ].join(" ")}
+            >
+              <span
+                className={`w-px shrink-0 self-stretch ${item.depth > 1 ? "bg-rule" : "bg-transparent"}`}
+                aria-hidden
+              />
+              <span
+                className={[
+                  "min-w-0 flex-1 truncate font-ui text-sm",
+                  active ? "text-link" : "text-ink",
+                ].join(" ")}
+              >
+                {item.service.name}
+              </span>
+              <span className={`shrink-0 font-mono text-[0.68rem] ${TONE[item.criticality] ?? "text-ink-soft"}`}>
+                {item.criticality}
+              </span>
+            </button>
+
+            {item.owners.length > 0 ? (
+              <p
+                className="font-ui text-[0.72rem] text-ink-faint"
+                style={{ paddingLeft: indent + 14 }}
+              >
+                {item.owners.map((o) => o.name).join(", ")}
+              </p>
+            ) : (
+              <p
+                className="font-ui text-[0.72rem] text-signal/80"
+                style={{ paddingLeft: indent + 14 }}
+              >
+                No owner recorded
               </p>
             )}
-            {item.owners.length === 0 && (
-              <p className="mt-1.5 text-xs text-amber-400/80">No owner recorded</p>
-            )}
-          </button>
+          </li>
         );
       })}
-    </div>
+
+      {maxDepth > 1 && (
+        <li className="pt-3 font-ui text-[0.72rem] leading-relaxed text-ink-faint">
+          Depth is shown by indentation: each level is one dependency hop from the
+          service you changed.
+        </li>
+      )}
+    </ul>
   );
 }

@@ -1,16 +1,19 @@
 "use client";
 
 /**
- * OrgMemory dashboard.
+ * OrgMemory, laid out as an assessment document rather than a dashboard.
  *
- * One question in, one investigation out: the answer, the evidence behind it,
- * the dependency graph that produced it, and the reasoning trace. Selection is
- * shared state - clicking a citation in the answer, a chip in the evidence
- * panel, a row in the impact list, or a node in the graph all focus the same
- * thing, which is what makes a claim traceable in one click.
+ * Structure: a masthead, the question, then a two-column report — the answer
+ * and its supporting logs on the left, the graph and the reasoning trace on the
+ * right. Evidence spans the full width beneath, because it is the widest and
+ * the most reference-like material.
+ *
+ * Selection is one piece of shared state. Clicking a citation in the answer, a
+ * chip in the evidence panel, a row in the blast radius, or a node in the graph
+ * all focus the same entity, which is what makes a claim traceable in one click.
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useSyncExternalStore, useState } from "react";
 import AnswerPanel from "@/components/AnswerPanel";
 import EvidencePanel from "@/components/EvidencePanel";
 import GraphCanvas from "@/components/GraphCanvas";
@@ -27,6 +30,29 @@ import type {
   NodeRef,
 } from "@/lib/types";
 
+type Theme = "light" | "dark";
+
+/**
+ * The theme lives on the document element - an inline script in the layout sets
+ * it before first paint - which makes it an external store rather than React
+ * state. `useSyncExternalStore` reads it without mirroring it through an effect,
+ * and without a hydration mismatch on the toggle label.
+ */
+const THEME_EVENT = "orgmemory-theme";
+
+const themeStore = {
+  subscribe(callback: () => void) {
+    window.addEventListener(THEME_EVENT, callback);
+    return () => window.removeEventListener(THEME_EVENT, callback);
+  },
+  getSnapshot(): Theme {
+    return document.documentElement.dataset.theme === "dark" ? "dark" : "light";
+  },
+  getServerSnapshot(): Theme {
+    return "light";
+  },
+};
+
 export default function Dashboard() {
   const [question, setQuestion] = useState(EXAMPLE_QUESTIONS[0].question);
   const [result, setResult] = useState<InvestigationResponse | null>(null);
@@ -35,15 +61,20 @@ export default function Dashboard() {
   const [history, setHistory] = useState<InvestigationSummary[]>([]);
   const [historyLoading, setHistoryLoading] = useState(true);
   const [overview, setOverview] = useState<GraphOverview | null>(null);
-  const [health, setHealth] = useState<{ status: string; graph_connected: boolean } | null>(null);
+  const [health, setHealth] = useState<{ graph_connected: boolean } | null>(null);
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
+  const theme = useSyncExternalStore(
+    themeStore.subscribe,
+    themeStore.getSnapshot,
+    themeStore.getServerSnapshot,
+  );
 
   const refreshHistory = useCallback(async () => {
     try {
       const data = await api.history(20);
       setHistory(data.investigations);
     } catch {
-      // A history failure must not break the dashboard.
+      // A history failure must not take the dashboard down.
     } finally {
       setHistoryLoading(false);
     }
@@ -54,20 +85,31 @@ export default function Dashboard() {
     // the effect body, so mounting does not cascade renders.
     void api
       .history(20)
-      .then((data) => setHistory(data.investigations))
+      .then((d) => setHistory(d.investigations))
       .catch(() => undefined)
       .finally(() => setHistoryLoading(false));
 
     void api
       .health()
       .then(setHealth)
-      .catch(() => setHealth({ status: "unreachable", graph_connected: false }));
+      .catch(() => setHealth({ graph_connected: false }));
 
     void api
       .overview()
       .then(setOverview)
       .catch(() => setOverview(null));
   }, []);
+
+  const toggleTheme = useCallback(() => {
+    const next: Theme = theme === "dark" ? "light" : "dark";
+    document.documentElement.dataset.theme = next;
+    try {
+      localStorage.setItem("orgmemory-theme", next);
+    } catch {
+      // Private browsing; the in-session choice still applies.
+    }
+    window.dispatchEvent(new Event(THEME_EVENT));
+  }, [theme]);
 
   const run = useCallback(
     async (text: string) => {
@@ -76,7 +118,6 @@ export default function Dashboard() {
         setError("Ask a question of at least 8 characters.");
         return;
       }
-
       setLoading(true);
       setError(null);
       setHighlightedId(null);
@@ -104,7 +145,7 @@ export default function Dashboard() {
     setHighlightedId(id === "" ? null : id);
   }, []);
 
-  /** Union of impacted services and evidence entities for the graph. */
+  /** Impacted services, shared dependencies and cited entities for the graph. */
   const graphData = useMemo(() => {
     if (!result) return { nodes: [] as NodeRef[], edges: [] as Edge[] };
 
@@ -125,7 +166,6 @@ export default function Dashboard() {
     Object.values(result.owners).forEach((people) => people.forEach(add));
     result.evidence.forEach((record) => record.entities.forEach(add));
 
-    // Owner and depends-on edges reconstructed from the returned structure.
     const edges: Edge[] = [];
     const seen = new Set<string>();
     const addEdge = (edge: Edge) => {
@@ -136,14 +176,21 @@ export default function Dashboard() {
       }
     };
 
-    result.impacted_services.forEach((item) => {
-      addEdge({
-        type: "DEPENDS_ON",
-        from_id: item.service.id,
-        from_type: "Service",
-        to_id: result.impacted_services[0]?.service.id ?? item.service.id,
-        to_type: "Service",
-      });
+    // The subject of the question is the graph's root.
+    const rootId = result.impacted_services[0]?.service.id;
+    if (rootId) {
+      result.impacted_services.forEach((item) =>
+        addEdge({
+          type: "DEPENDS_ON",
+          from_id: item.service.id,
+          from_type: "Service",
+          to_id: rootId,
+          to_type: "Service",
+        }),
+      );
+    }
+
+    result.impacted_services.forEach((item) =>
       item.owners.forEach((owner) =>
         addEdge({
           type: "OWNS",
@@ -152,11 +199,11 @@ export default function Dashboard() {
           to_id: item.service.id,
           to_type: "Service",
         }),
-      );
-    });
+      ),
+    );
 
     result.graph_paths.forEach((path) => {
-      path.edges.forEach((edge) => addEdge(edge));
+      path.edges.forEach(addEdge);
       path.nodes.forEach(add);
     });
 
@@ -175,75 +222,79 @@ export default function Dashboard() {
     return ids;
   }, [result]);
 
-  const graphPaths = result?.graph_paths ?? [];
   const critique = result?.critique;
+  const connected = health?.graph_connected ?? false;
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-200">
-      <header className="border-b border-slate-800 bg-slate-950/80 backdrop-blur">
-        <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-4 px-5 py-4">
-          <div>
-            <h1 className="text-lg font-semibold tracking-tight text-slate-100">
-              OrgMemory
-            </h1>
-            <p className="text-xs text-slate-500">
-              Your company&apos;s knowledge, connected and explainable.
-            </p>
+    <div className="min-h-screen bg-page text-ink">
+      {/* Masthead */}
+      <header className="border-b border-rule">
+        <div className="mx-auto flex max-w-[1400px] items-baseline justify-between gap-6 px-6 py-4">
+          <div className="flex items-baseline gap-3">
+            <h1 className="font-ui text-[1.05rem] font-semibold tracking-tight">OrgMemory</h1>
+            <span className="font-prose text-sm italic text-ink-faint">
+              your company&rsquo;s knowledge, connected and explainable
+            </span>
           </div>
-          <div className="flex items-center gap-3 text-xs">
+
+          <div className="flex items-center gap-4">
             {overview && (
-              <span className="text-slate-500">
-                {overview.total_nodes} nodes · {overview.total_relationships} relationships
+              <span className="font-mono text-[0.7rem] text-ink-faint">
+                {overview.total_nodes} nodes · {overview.total_relationships} edges
               </span>
             )}
-            {health && (
-              <span
-                className={[
-                  "flex items-center gap-1.5 rounded-full border px-2.5 py-1",
-                  health.graph_connected
-                    ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-300"
-                    : "border-rose-500/40 bg-rose-500/10 text-rose-300",
-                ].join(" ")}
-              >
-                <span
-                  className={`h-1.5 w-1.5 rounded-full ${
-                    health.graph_connected ? "bg-emerald-400" : "bg-rose-400"
-                  }`}
-                />
-                {health.graph_connected ? "Graph connected" : "Graph unavailable"}
-              </span>
-            )}
+            <span
+              className={[
+                "font-ui text-[0.72rem]",
+                connected ? "text-verify" : "text-signal",
+              ].join(" ")}
+            >
+              {connected ? "graph connected" : "graph unavailable"}
+            </span>
+            <button
+              type="button"
+              onClick={toggleTheme}
+              aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} theme`}
+              className="border border-rule px-2 py-1 font-mono text-[0.7rem] text-ink-soft transition hover:border-ink hover:text-ink"
+            >
+              {theme === "dark" ? "light" : "dark"}
+            </button>
           </div>
         </div>
       </header>
 
-      <main className="mx-auto max-w-7xl px-5 py-6">
+      <main className="mx-auto max-w-[1400px] px-6 pb-20">
         {/* Ask */}
-        <section className="mb-6">
+        <section className="border-b border-rule py-8">
           <form
             onSubmit={(e) => {
               e.preventDefault();
               void run(question);
             }}
-            className="flex flex-col gap-3 sm:flex-row"
+            className="flex flex-col gap-4 sm:flex-row sm:items-end"
           >
-            <input
-              value={question}
-              onChange={(e) => setQuestion(e.target.value)}
-              placeholder="Ask about your engineering organisation…"
-              aria-label="Investigation question"
-              className="flex-1 rounded-lg border border-slate-800 bg-slate-900 px-4 py-3 text-sm text-slate-100 outline-none transition placeholder:text-slate-600 focus:border-sky-500"
-            />
+            <label className="flex-1">
+              <span className="mb-2 block font-ui text-[0.8rem] text-ink-soft">
+                What do you need to know?
+              </span>
+              <input
+                value={question}
+                onChange={(e) => setQuestion(e.target.value)}
+                placeholder="Ask about your engineering organisation…"
+                aria-label="Investigation question"
+                className="w-full border border-rule bg-page-raised px-4 py-3 font-prose text-[0.95rem] text-ink outline-none transition placeholder:text-ink-faint focus:border-link"
+              />
+            </label>
             <button
               type="submit"
               disabled={loading}
-              className="rounded-lg bg-sky-500 px-6 py-3 text-sm font-medium text-slate-950 transition hover:bg-sky-400 disabled:cursor-not-allowed disabled:bg-slate-700 disabled:text-slate-500"
+              className="border border-ink bg-ink px-6 py-3 font-ui text-sm font-medium text-page transition hover:bg-transparent hover:text-ink disabled:cursor-not-allowed disabled:border-rule disabled:bg-transparent disabled:text-ink-faint"
             >
               {loading ? "Investigating…" : "Investigate"}
             </button>
           </form>
 
-          <div className="mt-3 flex flex-wrap gap-2">
+          <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-2">
             {EXAMPLE_QUESTIONS.map((example) => (
               <button
                 key={example.label}
@@ -253,219 +304,263 @@ export default function Dashboard() {
                   setQuestion(example.question);
                   void run(example.question);
                 }}
-                className={[
-                  "rounded-full border px-3 py-1 text-xs transition",
-                  example.primary
-                    ? "border-sky-500/50 bg-sky-500/10 text-sky-300 hover:bg-sky-500/20"
-                    : "border-slate-800 bg-slate-900/60 text-slate-400 hover:border-slate-700 hover:text-slate-200",
-                ].join(" ")}
+                className="group font-ui text-[0.82rem] text-ink-faint transition hover:text-ink"
               >
-                {example.label}
+                <span
+                  className={`underline decoration-dotted underline-offset-4 group-hover:decoration-solid ${
+                    example.primary ? "text-link" : ""
+                  }`}
+                >
+                  {example.label}
+                </span>
               </button>
             ))}
           </div>
         </section>
 
         {error && (
-          <div className="mb-6 rounded-lg border border-rose-500/40 bg-rose-500/10 px-4 py-3 text-sm text-rose-200">
+          <div className="mt-6 border-l-2 border-signal bg-signal-wash px-4 py-3 font-ui text-sm text-signal">
             {error}
           </div>
         )}
 
         {loading && (
-          <div className="mb-6 rounded-lg border border-slate-800 bg-slate-900/60 px-4 py-6">
-            <p className="text-sm text-slate-300">Traversing the knowledge graph…</p>
-            <div className="mt-3 space-y-2">
-              {["Classifying the question", "Resolving services", "Walking dependencies", "Checking evidence"].map(
-                (label) => (
-                  <div key={label} className="flex items-center gap-2 text-xs text-slate-500">
-                    <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-sky-400" />
-                    {label}
-                  </div>
-                ),
-              )}
-            </div>
+          <div className="mt-10 border-l-2 border-link pl-5">
+            <p className="font-prose text-[0.95rem] text-ink-soft">
+              Traversing the knowledge graph…
+            </p>
+            <ul className="mt-3 space-y-1.5">
+              {[
+                "Classifying the question",
+                "Resolving services",
+                "Walking dependencies",
+                "Checking claims against evidence",
+              ].map((label) => (
+                <li key={label} className="flex items-center gap-2.5 font-ui text-xs text-ink-faint">
+                  <span className="h-1 w-1 animate-pulse rounded-full bg-link" />
+                  {label}
+                </li>
+              ))}
+            </ul>
           </div>
         )}
 
         {!loading && !result && !error && (
-          <div className="rounded-xl border border-dashed border-slate-800 px-6 py-16 text-center">
-            <h2 className="text-base font-medium text-slate-300">
-              Ask a question to begin an investigation
+          <section className="py-24">
+            <h2 className="max-w-[30ch] font-prose text-3xl leading-tight text-ink">
+              Ask a hard question about your engineering organisation.
             </h2>
-            <p className="mx-auto mt-2 max-w-xl text-sm leading-relaxed text-slate-500">
+            <p className="mt-5 max-w-[62ch] font-prose text-[0.98rem] leading-relaxed text-ink-soft">
               OrgMemory traverses people, services, projects, incidents, decisions and
-              documents to answer questions about your engineering organisation — and cites
-              the graph records behind every material claim. Start with the primary demo
-              above.
+              documents to answer it — then cites the graph record behind every material
+              claim, and tells you plainly when the graph does not know something. Start
+              with the primary demo above.
             </p>
-          </div>
+          </section>
         )}
 
         {result && (
-          <div className="grid gap-6 lg:grid-cols-[1fr_360px]">
-            <div className="space-y-6">
-              {/* Answer */}
-              <section className="rounded-xl border border-slate-800 bg-slate-900/40 p-5">
-                <div className="mb-4 flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-3">
-                  <h2 className="text-sm font-semibold text-slate-200">Answer</h2>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Badge label={`intent: ${result.intent}`} tone="slate" />
-                    <Badge label={`confidence: ${result.confidence}`} tone={result.confidence === "high" ? "emerald" : "slate"} />
-                    {critique && (
-                      <Badge
-                        label={`critic: ${critique.verdict}`}
-                        tone={critique.verdict === "pass" ? "emerald" : "amber"}
-                      />
+          <>
+            <div className="grid gap-x-12 gap-y-10 py-10 lg:grid-cols-[minmax(0,1fr)_380px]">
+              {/* ---- The report ---- */}
+              <div className="min-w-0 space-y-10">
+                <section>
+                  <div className="flex flex-wrap items-baseline justify-between gap-x-4 border-b border-rule pb-2">
+                    <h2 className="font-ui text-[0.8rem] font-semibold tracking-wide text-ink-soft">
+                      Answer
+                    </h2>
+                    <div className="flex flex-wrap items-center gap-x-4 font-mono text-[0.68rem]">
+                      <span className="text-ink-faint">{result.intent}</span>
+                      <span className="text-ink-faint">confidence {result.confidence}</span>
+                      {critique && (
+                        <span
+                          className={
+                            critique.verdict === "pass" ? "text-verify" : "text-signal"
+                          }
+                        >
+                          critic {critique.verdict}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="mt-5 max-w-[68ch]">
+                    <AnswerPanel
+                      answer={result.answer}
+                      knownIds={knownIds}
+                      highlightedId={highlightedId}
+                      onSelect={select}
+                    />
+                  </div>
+
+                  <p className="mt-6 max-w-[68ch] border-t border-rule-soft pt-3 font-ui text-[0.72rem] leading-relaxed text-ink-faint">
+                    Blue citations were returned by the graph; red ones were not, and are
+                    flagged as unverified. Suggested actions are advisory and need human
+                    review.
+                  </p>
+                </section>
+
+                {/* Unknowns get first-class treatment. */}
+                {critique && critique.missing_evidence.length > 0 && (
+                  <section className="border-l-2 border-signal bg-signal-wash px-4 py-3">
+                    <h3 className="font-ui text-[0.78rem] font-semibold text-signal">
+                      What the graph does not record
+                    </h3>
+                    <ul className="mt-2 space-y-1">
+                      {critique.missing_evidence.map((gap) => (
+                        <li key={gap} className="font-ui text-xs leading-relaxed text-signal/90">
+                          {gap}
+                        </li>
+                      ))}
+                    </ul>
+                  </section>
+                )}
+              </div>
+
+              {/* ---- The figures ---- */}
+              <aside className="min-w-0 space-y-10">
+                <section>
+                  <h2 className="border-b border-rule pb-2 font-ui text-[0.8rem] font-semibold tracking-wide text-ink-soft">
+                    Blast radius
+                  </h2>
+                  <div className="mt-4">
+                    <ImpactList
+                      impacted={result.impacted_services}
+                      highlightedId={highlightedId}
+                      onSelect={select}
+                    />
+                  </div>
+                </section>
+
+                <section>
+                  <div className="flex items-baseline justify-between">
+                    <h2 className="border-b border-rule pb-2 font-ui text-[0.8rem] font-semibold tracking-wide text-ink-soft">
+                      Dependency graph
+                    </h2>
+                    {highlightedId && (
+                      <button
+                        type="button"
+                        onClick={() => setHighlightedId(null)}
+                        className="font-ui text-[0.7rem] text-link hover:underline"
+                      >
+                        clear focus
+                      </button>
                     )}
                   </div>
-                </div>
+                  <div className="mt-4 overflow-hidden border border-rule">
+                    <GraphCanvas
+                      nodes={graphData.nodes}
+                      edges={graphData.edges}
+                      paths={result.graph_paths}
+                      highlightedId={highlightedId}
+                      onSelect={select}
+                      height={380}
+                    />
+                  </div>
+                </section>
 
-                <AnswerPanel
-                  answer={result.answer}
-                  knownIds={knownIds}
-                  highlightedId={highlightedId}
-                  onSelect={select}
-                />
-                <p className="mt-4 border-t border-slate-800 pt-3 text-[11px] text-slate-500">
-                  Suggested actions are advisory and require human review. Cited ids in
-                  <span className="mx-1 rounded bg-sky-500/15 px-1 font-mono text-sky-300">blue</span>
-                  were returned by the graph; a
-                  <span className="mx-1 rounded bg-rose-500/15 px-1 font-mono text-rose-300">red</span>
-                  citation means the graph did not support it.
-                </p>
-              </section>
+                {result.recommendations.length > 0 && (
+                  <section>
+                    <h2 className="border-b border-rule pb-2 font-ui text-[0.8rem] font-semibold tracking-wide text-ink-soft">
+                      Suggested next steps
+                    </h2>
+                    <ol className="mt-4 space-y-4">
+                      {result.recommendations.map((rec, i) => (
+                        <li key={i}>
+                          <p className="font-ui text-[0.85rem] leading-relaxed text-ink">
+                            <span className="mr-1.5 font-mono text-[0.7rem] text-ink-faint">
+                              {String(i + 1).padStart(2, "0")}
+                            </span>
+                            {rec.action}
+                          </p>
+                          <p className="mt-1 font-prose text-sm leading-relaxed text-ink-soft">
+                            {rec.rationale}
+                          </p>
+                          {rec.suggested_reviewers.length > 0 && (
+                            <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1">
+                              {rec.suggested_reviewers.slice(0, 6).map((person) => (
+                                <button
+                                  key={person.id}
+                                  type="button"
+                                  onClick={() => select(person.id)}
+                                  className="font-ui text-[0.75rem] text-link underline decoration-dotted underline-offset-2 hover:decoration-solid"
+                                >
+                                  {person.name}
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </li>
+                      ))}
+                    </ol>
+                  </section>
+                )}
 
-              {/* Graph */}
-              <section className="rounded-xl border border-slate-800 bg-slate-900/40 p-5">
-                <h2 className="mb-3 text-sm font-semibold text-slate-200">
-                  Dependency graph
-                  {highlightedId && (
-                    <button
-                      type="button"
-                      onClick={() => setHighlightedId(null)}
-                      className="ml-3 text-xs font-normal text-sky-400 hover:text-sky-300"
-                    >
-                      clear focus
-                    </button>
-                  )}
-                </h2>
-                <GraphCanvas
-                  nodes={graphData.nodes}
-                  edges={graphData.edges}
-                  paths={graphPaths}
-                  highlightedId={highlightedId}
-                  onSelect={select}
-                />
-              </section>
+                {result.recalled_investigations.length > 0 && (
+                  <section>
+                    <h2 className="border-b border-rule pb-2 font-ui text-[0.8rem] font-semibold tracking-wide text-ink-soft">
+                      Recalled from earlier
+                    </h2>
+                    <ul className="mt-4 space-y-3">
+                      {result.recalled_investigations.map((item) => (
+                        <li key={item.id} className="border-l border-rule pl-3">
+                          <p className="font-ui text-xs leading-relaxed text-ink-soft">
+                            {item.question}
+                          </p>
+                          <p className="mt-0.5 font-mono text-[0.65rem] text-ink-faint">
+                            {item.id}
+                          </p>
+                        </li>
+                      ))}
+                    </ul>
+                  </section>
+                )}
 
-              {/* Evidence */}
-              <section className="rounded-xl border border-slate-800 bg-slate-900/40 p-5">
-                <h2 className="mb-3 text-sm font-semibold text-slate-200">Evidence</h2>
-                <EvidencePanel
-                  evidence={result.evidence}
-                  incidents={result.incidents}
-                  decisions={result.decisions}
-                  documents={result.documents}
-                  highlightedId={highlightedId}
-                  onSelect={select}
-                />
-              </section>
+                <section>
+                  <h2 className="border-b border-rule pb-2 font-ui text-[0.8rem] font-semibold tracking-wide text-ink-soft">
+                    Reasoning trace
+                  </h2>
+                  <div className="mt-4">
+                    <StepsTimeline steps={result.steps} />
+                  </div>
+                </section>
+
+                <section>
+                  <h2 className="border-b border-rule pb-2 font-ui text-[0.8rem] font-semibold tracking-wide text-ink-soft">
+                    Earlier investigations
+                  </h2>
+                  <div className="mt-4">
+                    <HistoryList
+                      items={history}
+                      activeId={result.investigation_id}
+                      loading={historyLoading}
+                      onSelect={(q) => {
+                        setQuestion(q);
+                        void run(q);
+                      }}
+                    />
+                  </div>
+                </section>
+              </aside>
             </div>
 
-            {/* Sidebar */}
-            <aside className="space-y-6">
-              <Panel title="Impacted services">
-                <ImpactList
-                  impacted={result.impacted_services}
-                  highlightedId={highlightedId}
-                  onSelect={select}
-                />
-              </Panel>
-
-              {result.recommendations.length > 0 && (
-                <Panel title="Recommended next steps">
-                  <ol className="space-y-2">
-                    {result.recommendations.map((rec, i) => (
-                      <li key={i} className="text-xs leading-relaxed text-slate-300">
-                        <span className="text-slate-500">{i + 1}.</span> {rec.action}
-                        <p className="mt-0.5 text-[11px] text-slate-500">{rec.rationale}</p>
-                        {rec.suggested_reviewers.length > 0 && (
-                          <div className="mt-1 flex flex-wrap gap-1">
-                            {rec.suggested_reviewers.slice(0, 5).map((person) => (
-                              <button
-                                key={person.id}
-                                type="button"
-                                onClick={() => select(person.id)}
-                                className="rounded bg-slate-800 px-1.5 py-0.5 text-[10px] text-slate-300 hover:bg-slate-700"
-                              >
-                                {person.name}
-                              </button>
-                            ))}
-                          </div>
-                        )}
-                      </li>
-                    ))}
-                  </ol>
-                </Panel>
-              )}
-
-              {result.recalled_investigations.length > 0 && (
-                <Panel title="Recalled from memory">
-                  <ul className="space-y-2">
-                    {result.recalled_investigations.map((item) => (
-                      <li key={item.id} className="text-xs leading-relaxed text-slate-400">
-                        <p className="text-slate-300">{item.question}</p>
-                        <p className="mt-0.5 font-mono text-[10px] text-slate-600">
-                          {item.id}
-                        </p>
-                      </li>
-                    ))}
-                  </ul>
-                </Panel>
-              )}
-
-              <Panel title="Reasoning trace">
-                <StepsTimeline steps={result.steps} />
-              </Panel>
-
-              <Panel title="History">
-                <HistoryList
-                  items={history}
-                  activeId={result.investigation_id}
-                  loading={historyLoading}
-                  onSelect={(q) => {
-                    setQuestion(q);
-                    void run(q);
-                  }}
-                />
-              </Panel>
-            </aside>
-          </div>
+            {/* Evidence spans the width — it is reference material. */}
+            <section className="border-t border-rule pt-8">
+              <h2 className="mb-5 font-ui text-[0.8rem] font-semibold tracking-wide text-ink-soft">
+                Evidence
+              </h2>
+              <EvidencePanel
+                evidence={result.evidence}
+                incidents={result.incidents}
+                decisions={result.decisions}
+                documents={result.documents}
+                highlightedId={highlightedId}
+                onSelect={select}
+              />
+            </section>
+          </>
         )}
       </main>
     </div>
-  );
-}
-
-function Panel({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <section className="rounded-xl border border-slate-800 bg-slate-900/40 p-4">
-      <h2 className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-400">
-        {title}
-      </h2>
-      {children}
-    </section>
-  );
-}
-
-function Badge({ label, tone }: { label: string; tone: "slate" | "emerald" | "amber" }) {
-  const styles = {
-    slate: "bg-slate-800 text-slate-400",
-    emerald: "bg-emerald-500/15 text-emerald-300",
-    amber: "bg-amber-500/15 text-amber-300",
-  }[tone];
-  return (
-    <span className={`rounded px-2 py-0.5 text-[10px] ${styles}`}>{label}</span>
   );
 }

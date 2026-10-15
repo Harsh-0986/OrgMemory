@@ -1,0 +1,669 @@
+- generic [ref=f3e1]:
+  - generic [ref=f3e2]:
+    - banner [ref=f3e3]:
+      - generic [ref=f3e4]:
+        - generic [ref=f3e5]:
+          - heading "OrgMemory" [level=1] [ref=f3e6]
+          - paragraph [ref=f3e7]: Your company's knowledge, connected and explainable.
+        - generic [ref=f3e23]:
+          - generic [ref=f3e24]: 54 nodes · 128 relationships
+          - generic [ref=f3e25]: Graph connected
+    - main [ref=f3e8]:
+      - generic [ref=f3e9]:
+        - generic [ref=f3e10]:
+          - textbox "Investigation question" [ref=f3e11]:
+            - /placeholder: Ask about your engineering organisation…
+            - text: Can we replace Payment Service A with Payment Service B? What could break, who should review it, and why do we use the current service?
+          - button "Investigate" [ref=f3e12]
+        - generic [ref=f3e13]:
+          - button "The primary demo" [active] [ref=f3e14]
+          - button "Impact only" [ref=f3e15]
+          - button "Ownership" [ref=f3e16]
+          - button "Why it was chosen" [ref=f3e17]
+          - button "Unknown cause" [ref=f3e18]
+          - button "Recall a session" [ref=f3e19]
+      - generic [ref=f3e37]:
+        - generic [ref=f3e38]:
+          - generic [ref=f3e39]:
+            - generic [ref=f3e40]:
+              - heading "Answer" [level=2] [ref=f3e41]
+              - generic [ref=f3e42]:
+                - generic [ref=f3e43]: "intent: replacement"
+                - generic [ref=f3e44]: "confidence: moderate"
+                - generic [ref=f3e45]: "critic: qualify"
+            - generic [ref=f3e46]:
+              - heading "Verdict" [level=3] [ref=f3e47]
+              - paragraph [ref=f3e49]:
+                - text: Replacing Payment Service A (LegacyPay)
+                - button "svc-payment-legacy" [ref=f3e50]
+                - text: with Payment Service B (PayFlow)
+                - button "svc-payment-v2" [ref=f3e51]
+                - text: is
+                - strong [ref=f3e52]: not a contained change
+                - text: . 8 service(s) sit downstream of it, including 3 marked critical. The graph does not yet record a completed migration, so this should be treated as a planned change requiring staged cutover.
+              - heading "What depends on it" [level=3] [ref=f3e54]
+              - paragraph [ref=f3e58]:
+                - strong [ref=f3e59]: Checkout API
+                - code [ref=f3e60]: svc-checkout
+                - text: "- 1 hop(s), criticality"
+                - strong [ref=f3e61]: critical
+                - text: "- owner: Lena Fischer"
+              - paragraph [ref=f3e64]:
+                - strong [ref=f3e65]: Invoice & Billing Service
+                - code [ref=f3e66]: svc-invoice
+                - text: "- 1 hop(s), criticality"
+                - strong [ref=f3e67]: critical
+                - text: "- owner: Sofia Ivanova"
+              - paragraph [ref=f3e70]:
+                - strong [ref=f3e71]: Order Service
+                - code [ref=f3e72]: svc-order
+                - text: "- 1 hop(s), criticality"
+                - strong [ref=f3e73]: critical
+                - text: "- owner: no owner recorded"
+              - paragraph [ref=f3e76]:
+                - strong [ref=f3e77]: Refunds Service
+                - code [ref=f3e78]: svc-refunds
+                - text: "- 1 hop(s), criticality"
+                - strong [ref=f3e79]: high
+                - text: "- owner: Priya Raman"
+              - paragraph [ref=f3e82]:
+                - strong [ref=f3e83]: Subscription Service
+                - code [ref=f3e84]: svc-subscription
+                - text: "- 1 hop(s), criticality"
+                - strong [ref=f3e85]: high
+                - text: "- owner: Sofia Ivanova"
+              - paragraph [ref=f3e88]:
+                - strong [ref=f3e89]: Cart Service
+                - code [ref=f3e90]: svc-cart
+                - text: "- 2 hop(s), criticality"
+                - strong [ref=f3e91]: high
+                - text: "- owner: Noah Adeyemi"
+              - paragraph [ref=f3e94]:
+                - strong [ref=f3e95]: Storefront Web
+                - code [ref=f3e96]: svc-storefront
+                - text: "- 3 hop(s), criticality"
+                - strong [ref=f3e97]: high
+                - text: "- owner: Noah Adeyemi"
+              - paragraph [ref=f3e100]:
+                - strong [ref=f3e101]: Promotions Service
+                - code [ref=f3e102]: svc-promo
+                - text: "- 3 hop(s), criticality"
+                - strong [ref=f3e103]: medium
+                - text: "- owner: Noah Adeyemi"
+              - heading "Why the current service is used" [level=3] [ref=f3e105]
+              - 'heading "Adopt a shadow-traffic dual-write migration strategy `dec-2026-01-dual-write-migration`" [level=4] [ref=f3e107]'
+              - paragraph [ref=f3e108]: "*Status proposed on 2026-01-22.* A big-bang cutover carries unacceptable risk for 4.2M monthly payment calls. We will shadow real traffic to Payment Service B, compare authorisation results, and only then shift the primary write path. Cutover requires sign-off from the owners of every service that depends on the payment path."
+              - 'heading "Modernise the payment stack and evaluate PayFlow as a replacement `dec-2025-08-payments-modernization`" [level=4] [ref=f3e110]'
+              - paragraph [ref=f3e111]: "*Status accepted on 2025-08-05.* LegacyPay has announced an API v3 sunset in Q4 2026, which forces a migration regardless of preference. PayFlow offers lower per-transaction cost, native multi-currency, and 3DS step-up authentication that LegacyPay only supports through a third-party add-on. We committed to building Payment Service B against PayFlow before the sunset deadline."
+              - 'heading "Route all payment fraud scoring through a single gateway `dec-2025-05-unified-fraud-gateway`" [level=4] [ref=f3e113]'
+              - paragraph [ref=f3e114]: "*Status accepted on 2025-05-08.* Checkout and the legacy payment integration were calling the fraud model directly with divergent rules. Consolidating behind one gateway removed inconsistent decline behaviour and gave a single place to enforce latency budgets."
+              - 'heading "Route all payment fraud scoring through a single gateway `dec-2025-05-unified-fraud-gateway`" [level=4] [ref=f3e116]'
+              - paragraph [ref=f3e117]: "*Status accepted on 2025-05-08.* Checkout and the legacy payment integration were calling the fraud model directly with divergent rules. Consolidating behind one gateway removed inconsistent decline behaviour and gave a single place to enforce latency budgets."
+              - 'heading "Retain 15-minute batch ledger sync instead of real-time events `dec-2024-02-retain-batch-ledger-sync`" [level=4] [ref=f3e119]'
+              - paragraph [ref=f3e120]: "*Status accepted on 2024-02-19.* Finance requires a reconciled general ledger before period close. Batch sync met this requirement with a known worst-case drift of 15 minutes, which was accepted as an explicit trade-off against the operational cost of real-time streaming."
+              - 'heading "Adopt LegacyPay as the primary payment processor `dec-2023-06-legacypay-adoption`" [level=4] [ref=f3e122]'
+              - paragraph [ref=f3e123]: "*Status superseded on 2023-06-14.* LegacyPay offered the fastest integration path and kept us inside PCI SAQ-A scope, avoiding cardholder data on our own infrastructure. At the time it was the only processor meeting our three-day launch requirement. No analysis of processor portability was performed."
+              - paragraph [ref=f3e124]:
+                - strong [ref=f3e125]: "Superseded by:"
+                - text: Modernise the payment stack and evaluate PayFlow as a replacement
+              - heading "Who should review this" [level=3] [ref=f3e127]
+              - paragraph [ref=f3e131]:
+                - strong [ref=f3e132]: Noah Adeyemi
+                - code [ref=f3e133]: per-noah-adeyemi
+                - text: "- owns"
+                - code [ref=f3e134]: svc-cart
+                - text: (Tech Lead, Web)
+              - paragraph [ref=f3e137]:
+                - strong [ref=f3e138]: Lena Fischer
+                - code [ref=f3e139]: per-lena-fischer
+                - text: "- owns"
+                - code [ref=f3e140]: svc-checkout
+                - text: (Senior Engineer, Checkout)
+              - paragraph [ref=f3e143]:
+                - strong [ref=f3e144]: Sofia Ivanova
+                - code [ref=f3e145]: per-sofia-ivanova
+                - text: "- owns"
+                - code [ref=f3e146]: svc-invoice
+                - text: (Senior Engineer, Billing)
+              - paragraph [ref=f3e149]:
+                - strong [ref=f3e150]: Amara Osei
+                - code [ref=f3e151]: per-amara-osei
+                - text: "- owns"
+                - code [ref=f3e152]: svc-payment-legacy
+                - text: (Staff Engineer, Payments)
+              - paragraph [ref=f3e155]:
+                - strong [ref=f3e156]: Noah Adeyemi
+                - code [ref=f3e157]: per-noah-adeyemi
+                - text: "- owns"
+                - code [ref=f3e158]: svc-promo
+                - text: (Tech Lead, Web)
+              - paragraph [ref=f3e161]:
+                - strong [ref=f3e162]: Priya Raman
+                - code [ref=f3e163]: per-priya-raman
+                - text: "- owns"
+                - code [ref=f3e164]: svc-refunds
+                - text: (Principal Engineer, Payments)
+              - paragraph [ref=f3e167]:
+                - strong [ref=f3e168]: Noah Adeyemi
+                - code [ref=f3e169]: per-noah-adeyemi
+                - text: "- owns"
+                - code [ref=f3e170]: svc-storefront
+                - text: (Tech Lead, Web)
+              - paragraph [ref=f3e173]:
+                - strong [ref=f3e174]: Sofia Ivanova
+                - code [ref=f3e175]: per-sofia-ivanova
+                - text: "- owns"
+                - code [ref=f3e176]: svc-subscription
+                - text: (Senior Engineer, Billing)
+              - paragraph [ref=f3e179]:
+                - strong [ref=f3e180]: Lena Fischer
+                - code [ref=f3e181]: per-lena-fischer
+                - text: "- project on Payments Modernisation"
+                - button "proj-payments-modernization" [ref=f3e182]
+              - paragraph [ref=f3e185]:
+                - strong [ref=f3e186]: Lena Fischer
+                - code [ref=f3e187]: per-lena-fischer
+                - text: "- project on Checkout V3 Rollout"
+                - button "proj-checkout-v3" [ref=f3e188]
+              - paragraph [ref=f3e191]:
+                - strong [ref=f3e192]: Lena Fischer
+                - code [ref=f3e193]: per-lena-fischer
+                - text: "- incident on Checkout degradation during peak freight sale"
+                - button "inc-2025-09-checkout-degradation" [ref=f3e194]
+              - paragraph [ref=f3e197]:
+                - strong [ref=f3e198]: Marcus Oyelaran
+                - code [ref=f3e199]: per-marcus-oyelaran
+                - text: "- project on Payments Modernisation"
+                - button "proj-payments-modernization" [ref=f3e200]
+              - paragraph [ref=f3e203]:
+                - strong [ref=f3e204]: Marcus Oyelaran
+                - code [ref=f3e205]: per-marcus-oyelaran
+                - text: "- project on Unified Fraud Gateway"
+                - button "proj-fraud-gateway" [ref=f3e206]
+              - paragraph [ref=f3e209]:
+                - strong [ref=f3e210]: Marcus Oyelaran
+                - code [ref=f3e211]: per-marcus-oyelaran
+                - text: "- incident on Fraud gateway timeouts degraded checkout completion"
+                - button "inc-2025-03-fraud-timeout" [ref=f3e212]
+              - heading "Risks and unknowns" [level=3] [ref=f3e214]
+              - paragraph [ref=f3e216]:
+                - strong [ref=f3e217]: Potential risk.
+                - text: "Both services share these dependencies, which must support the old and new paths at once: Fraud Scoring Gateway"
+                - code [ref=f3e218]: svc-fraud
+                - text: ", General Ledger Sync"
+                - code [ref=f3e219]: svc-ledger
+                - text: ", Webhook Dispatcher"
+                - code [ref=f3e220]: svc-webhook
+                - text: .
+              - heading "Recommended next steps" [level=3] [ref=f3e222]
+              - paragraph [ref=f3e224]: 1. Get sign-off from the owners of every critical impacted service before any cutover. _3 critical service(s) depend on the service being replaced within the configured traversal depth._
+              - paragraph [ref=f3e225]:
+                - text: "Suggested reviewers: Lena Fischer"
+                - code [ref=f3e226]: per-lena-fischer
+                - text: ", Sofia Ivanova"
+                - code [ref=f3e227]: per-sofia-ivanova
+              - paragraph [ref=f3e228]: 2. Route the change review to engineers with recorded project or incident history on the impacted services. _10 people have recorded engagement with the impacted services._
+              - paragraph [ref=f3e229]:
+                - text: "Suggested reviewers: Lena Fischer"
+                - code [ref=f3e230]: per-lena-fischer
+                - text: ", Marcus Oyelaran"
+                - code [ref=f3e231]: per-marcus-oyelaran
+                - text: ", Priya Raman"
+                - code [ref=f3e232]: per-priya-raman
+                - text: ", Amara Osei"
+                - code [ref=f3e233]: per-amara-osei
+                - text: ", Sofia Ivanova"
+                - code [ref=f3e234]: per-sofia-ivanova
+              - paragraph [ref=f3e235]: 3. Review the recorded postmortems for the most severe incidents on this path before planning the migration. _4 sev1/sev2 incident(s) are recorded against these services; each is a concrete failure mode to test against._
+              - paragraph [ref=f3e236]: "4. Verify that every shared dependency supports both services simultaneously during the migration window. _3 service(s) are dependencies of both the old and the replacement service: Fraud Scoring Gateway, General Ledger Sync, Webhook Dispatcher_"
+              - heading "Verification notes" [level=3] [ref=f3e237]
+              - paragraph [ref=f3e239]: "The following claims could not be grounded in the graph:"
+              - paragraph [ref=f3e243]:
+                - text: Answer cites
+                - button "proj-checkout-v3" [ref=f3e244]
+                - text: ", which no retrieved evidence record supports."
+              - paragraph [ref=f3e247]:
+                - text: Answer cites
+                - button "proj-fraud-gateway" [ref=f3e248]
+                - text: ", which no retrieved evidence record supports."
+              - paragraph [ref=f3e251]:
+                - text: Answer cites
+                - button "proj-payments-modernization" [ref=f3e252]
+                - text: ", which no retrieved evidence record supports."
+              - paragraph [ref=f3e255]:
+                - text: Answer cites
+                - button "svc-payment-legacy" [ref=f3e256]
+                - text: ", which no retrieved evidence record supports."
+              - paragraph [ref=f3e259]:
+                - text: Answer cites
+                - button "svc-payment-v2" [ref=f3e260]
+                - text: ", which no retrieved evidence record supports."
+              - paragraph [ref=f3e262]: _Read these as open questions rather than settled findings. Review with the named owners before acting._
+            - paragraph [ref=f3e263]: Suggested actions are advisory and require human review. Cited ids inbluewere returned by the graph; aredcitation means the graph did not support it.
+          - generic [ref=f3e264]:
+            - heading "Dependency graph" [level=2] [ref=f3e265]
+            - generic [ref=f3e266]:
+              - img "Dependency graph with 41 nodes and 23 edges" [ref=f3e267]:
+                - generic [ref=f3e290]: Checkout API
+                - generic [ref=f3e292]: Invoice & Billing Service
+                - generic [ref=f3e294]: Order Service
+                - generic [ref=f3e296]: Refunds Service
+                - generic [ref=f3e298]: Subscription Service
+                - generic [ref=f3e300]: Cart Service
+                - generic [ref=f3e302]: Storefront Web
+                - generic [ref=f3e304]: Promotions Service
+                - generic [ref=f3e306]: Fraud Scoring Gateway
+                - generic [ref=f3e308]: General Ledger Sync
+                - generic [ref=f3e310]: Webhook Dispatcher
+                - generic [ref=f3e312]: Noah Adeyemi
+                - generic [ref=f3e314]: Lena Fischer
+                - generic [ref=f3e316]: Sofia Ivanova
+                - generic [ref=f3e318]: Amara Osei
+                - generic [ref=f3e320]: Priya Raman
+                - generic [ref=f3e322]: Identity & Access Service
+                - generic [ref=f3e324]: Analytics Pipeline
+                - generic [ref=f3e326]: Notification Service
+                - generic [ref=f3e328]: Marcus Oyelaran
+                - generic [ref=f3e330]: Tom Berg
+                - generic [ref=f3e332]: Aya Nakamura
+                - generic [ref=f3e334]: Diego Ruiz
+                - generic [ref=f3e336]: James Whitfield
+                - generic [ref=f3e338]: PayFlow sandbox rejected…
+                - generic [ref=f3e340]: Checkout degradation dur…
+                - generic [ref=f3e342]: LegacyPay API key rotati…
+                - generic [ref=f3e344]: Fraud gateway timeouts d…
+                - generic [ref=f3e346]: General ledger drift aft…
+                - generic [ref=f3e348]: Adopt a shadow-traffic d…
+                - generic [ref=f3e350]: Modernise the payment st…
+                - generic [ref=f3e352]: Route all payment fraud …
+                - generic [ref=f3e354]: Retain 15-minute batch l…
+                - generic [ref=f3e356]: Adopt LegacyPay as the p…
+                - generic [ref=f3e358]: "ADR-0007: LegacyPay adop…"
+                - generic [ref=f3e360]: "ADR-0021: Payments moder…"
+                - generic [ref=f3e362]: Checkout Team Engineerin…
+                - generic [ref=f3e364]: Ledger Sync Contract and…
+                - generic [ref=f3e366]: LegacyPay Integration Ru…
+                - generic [ref=f3e368]: Payment Migration Runboo…
+                - generic [ref=f3e370]: svc-payment-legacy
+              - generic [ref=f3e372]:
+                - generic [ref=f3e373]: Service
+                - generic [ref=f3e375]: Person
+                - generic [ref=f3e377]: Incident
+                - generic [ref=f3e379]: Decision
+                - generic [ref=f3e381]: Document
+                - generic [ref=f3e383]: Drag to rearrange · click a node to focus
+          - generic [ref=f3e384]:
+            - heading "Evidence" [level=2] [ref=f3e385]
+            - generic [ref=f3e386]:
+              - generic [ref=f3e387]:
+                - button "Evidence10" [ref=f3e388]
+                - button "Incidents7" [ref=f3e389]
+                - button "Decisions6" [ref=f3e390]
+                - button "Documents6" [ref=f3e391]
+              - list [ref=f3e393]:
+                - listitem [ref=f3e394]:
+                  - generic [ref=f3e395]:
+                    - paragraph [ref=f3e396]: 2 related past investigation(s) found.
+                    - generic [ref=f3e397]: confirmed
+                  - generic [ref=f3e398]:
+                    - button "inv-edd38a7788ea" [ref=f3e399]
+                    - button "inv-2454b18f476d" [ref=f3e400]
+                - listitem [ref=f3e401]:
+                  - generic [ref=f3e402]:
+                    - paragraph [ref=f3e403]: 8 service(s) depend on svc-payment-legacy within 3 hops, including 3 critical.
+                    - generic [ref=f3e404]: confirmed
+                  - generic [ref=f3e405]:
+                    - button "svc-checkout" [ref=f3e406]
+                    - button "svc-invoice" [ref=f3e407]
+                    - button "svc-order" [ref=f3e408]
+                    - button "svc-refunds" [ref=f3e409]
+                    - button "svc-subscription" [ref=f3e410]
+                    - button "svc-cart" [ref=f3e411]
+                    - button "svc-storefront" [ref=f3e412]
+                    - button "svc-promo" [ref=f3e413]
+                - listitem [ref=f3e414]:
+                  - generic [ref=f3e415]:
+                    - paragraph [ref=f3e416]: svc-payment-legacy depends on 6 upstream service(s).
+                    - generic [ref=f3e417]: confirmed
+                  - generic [ref=f3e418]:
+                    - button "svc-fraud" [ref=f3e419]
+                    - button "svc-identity" [ref=f3e420]
+                    - button "svc-ledger" [ref=f3e421]
+                    - button "svc-webhook" [ref=f3e422]
+                    - button "svc-analytics" [ref=f3e423]
+                    - button "svc-notification" [ref=f3e424]
+                - listitem [ref=f3e425]:
+                  - generic [ref=f3e426]:
+                    - paragraph [ref=f3e427]: 8 owner(s) across 8 service(s).
+                    - generic [ref=f3e428]: confirmed
+                  - generic [ref=f3e429]:
+                    - button "per-noah-adeyemi" [ref=f3e430]
+                    - button "per-lena-fischer" [ref=f3e431]
+                    - button "per-sofia-ivanova" [ref=f3e432]
+                    - button "per-amara-osei" [ref=f3e433]
+                    - button "per-noah-adeyemi" [ref=f3e434]
+                    - button "per-priya-raman" [ref=f3e435]
+                    - button "per-noah-adeyemi" [ref=f3e436]
+                    - button "per-sofia-ivanova" [ref=f3e437]
+                  - paragraph [ref=f3e438]: "No owner recorded for: svc-order"
+                - listitem [ref=f3e439]:
+                  - generic [ref=f3e440]:
+                    - paragraph [ref=f3e441]: 10 engineer(s) have project or incident history on the impacted services.
+                    - generic [ref=f3e442]: confirmed
+                  - generic [ref=f3e443]:
+                    - button "per-lena-fischer" [ref=f3e444]
+                    - button "per-marcus-oyelaran" [ref=f3e445]
+                    - button "per-priya-raman" [ref=f3e446]
+                    - button "per-amara-osei" [ref=f3e447]
+                    - button "per-sofia-ivanova" [ref=f3e448]
+                    - button "per-tom-berg" [ref=f3e449]
+                    - button "per-aya-nakamura" [ref=f3e450]
+                    - button "per-diego-ruiz" [ref=f3e451]
+                    - button "per-james-whitfield" [ref=f3e452]
+                    - button "per-noah-adeyemi" [ref=f3e453]
+                - listitem [ref=f3e454]:
+                  - generic [ref=f3e455]:
+                    - paragraph [ref=f3e456]: 7 related incident(s) found.
+                    - generic [ref=f3e457]: confirmed
+                  - generic [ref=f3e458]:
+                    - button "inc-2026-02-payflow-sandbox-idempotency" [ref=f3e459]
+                    - button "inc-2025-09-checkout-degradation" [ref=f3e460]
+                    - button "inc-2025-09-checkout-degradation" [ref=f3e461]
+                    - button "inc-2025-07-legacypay-key-rotation" [ref=f3e462]
+                    - button "inc-2025-07-legacypay-key-rotation" [ref=f3e463]
+                    - button "inc-2025-03-fraud-timeout" [ref=f3e464]
+                    - button "inc-2024-11-ledger-drift" [ref=f3e465]
+                - listitem [ref=f3e466]:
+                  - generic [ref=f3e467]:
+                    - paragraph [ref=f3e468]: 6 architecture decision(s) apply.
+                    - generic [ref=f3e469]: confirmed
+                  - generic [ref=f3e470]:
+                    - button "dec-2026-01-dual-write-migration" [ref=f3e471]
+                    - button "dec-2025-08-payments-modernization" [ref=f3e472]
+                    - button "dec-2025-05-unified-fraud-gateway" [ref=f3e473]
+                    - button "dec-2025-05-unified-fraud-gateway" [ref=f3e474]
+                    - button "dec-2024-02-retain-batch-ledger-sync" [ref=f3e475]
+                    - button "dec-2023-06-legacypay-adoption" [ref=f3e476]
+                  - paragraph [ref=f3e477]: "Superseded: 1 decision(s)"
+                - listitem [ref=f3e478]:
+                  - generic [ref=f3e479]:
+                    - paragraph [ref=f3e480]: 6 supporting document(s) found.
+                    - generic [ref=f3e481]: confirmed
+                  - generic [ref=f3e482]:
+                    - button "doc-adr-0007-legacy-adoption" [ref=f3e483]
+                    - button "doc-adr-0021-payments-modernization" [ref=f3e484]
+                    - button "doc-checkout-owner-handbook" [ref=f3e485]
+                    - button "doc-ledger-contract" [ref=f3e486]
+                    - button "doc-legacypay-integration-runbook" [ref=f3e487]
+                    - button "doc-migration-runbook-draft" [ref=f3e488]
+                - listitem [ref=f3e489]:
+                  - generic [ref=f3e490]:
+                    - paragraph [ref=f3e491]: 3 shared dependency/dependencies between svc-payment-legacy and svc-payment-v2.
+                    - generic [ref=f3e492]: confirmed
+                  - generic [ref=f3e493]:
+                    - button "svc-fraud" [ref=f3e494]
+                    - button "svc-ledger" [ref=f3e495]
+                    - button "svc-webhook" [ref=f3e496]
+                - listitem [ref=f3e497]:
+                  - generic [ref=f3e498]:
+                    - paragraph [ref=f3e499]: svc-payment-v2 depends on 6 upstream service(s).
+                    - generic [ref=f3e500]: confirmed
+                  - generic [ref=f3e501]:
+                    - button "svc-fraud" [ref=f3e502]
+                    - button "svc-ledger" [ref=f3e503]
+                    - button "svc-webhook" [ref=f3e504]
+                    - button "svc-analytics" [ref=f3e505]
+                    - button "svc-identity" [ref=f3e506]
+                    - button "svc-notification" [ref=f3e507]
+        - complementary [ref=f3e508]:
+          - generic [ref=f3e509]:
+            - heading "Impacted services" [level=2] [ref=f3e510]
+            - generic [ref=f3e511]:
+              - 'button "Checkout API svc-checkout critical 1 hop Owner: Lena Fischer" [ref=f3e512]':
+                - generic [ref=f3e513]:
+                  - generic [ref=f3e514]:
+                    - paragraph [ref=f3e515]: Checkout API
+                    - code [ref=f3e516]: svc-checkout
+                  - generic [ref=f3e517]:
+                    - generic [ref=f3e518]: critical
+                    - generic "1 dependency hop(s) from the changed service" [ref=f3e519]: 1 hop
+                - paragraph [ref=f3e520]: "Owner: Lena Fischer"
+              - 'button "Invoice & Billing Service svc-invoice critical 1 hop Owner: Sofia Ivanova" [ref=f3e521]':
+                - generic [ref=f3e522]:
+                  - generic [ref=f3e523]:
+                    - paragraph [ref=f3e524]: Invoice & Billing Service
+                    - code [ref=f3e525]: svc-invoice
+                  - generic [ref=f3e526]:
+                    - generic [ref=f3e527]: critical
+                    - generic "1 dependency hop(s) from the changed service" [ref=f3e528]: 1 hop
+                - paragraph [ref=f3e529]: "Owner: Sofia Ivanova"
+              - button "Order Service svc-order critical 1 hop No owner recorded" [ref=f3e530]:
+                - generic [ref=f3e531]:
+                  - generic [ref=f3e532]:
+                    - paragraph [ref=f3e533]: Order Service
+                    - code [ref=f3e534]: svc-order
+                  - generic [ref=f3e535]:
+                    - generic [ref=f3e536]: critical
+                    - generic "1 dependency hop(s) from the changed service" [ref=f3e537]: 1 hop
+                - paragraph [ref=f3e538]: No owner recorded
+              - 'button "Refunds Service svc-refunds high 1 hop Owner: Priya Raman" [ref=f3e539]':
+                - generic [ref=f3e540]:
+                  - generic [ref=f3e541]:
+                    - paragraph [ref=f3e542]: Refunds Service
+                    - code [ref=f3e543]: svc-refunds
+                  - generic [ref=f3e544]:
+                    - generic [ref=f3e545]: high
+                    - generic "1 dependency hop(s) from the changed service" [ref=f3e546]: 1 hop
+                - paragraph [ref=f3e547]: "Owner: Priya Raman"
+              - 'button "Subscription Service svc-subscription high 1 hop Owner: Sofia Ivanova" [ref=f3e548]':
+                - generic [ref=f3e549]:
+                  - generic [ref=f3e550]:
+                    - paragraph [ref=f3e551]: Subscription Service
+                    - code [ref=f3e552]: svc-subscription
+                  - generic [ref=f3e553]:
+                    - generic [ref=f3e554]: high
+                    - generic "1 dependency hop(s) from the changed service" [ref=f3e555]: 1 hop
+                - paragraph [ref=f3e556]: "Owner: Sofia Ivanova"
+              - 'button "Cart Service svc-cart high 2 hops Owner: Noah Adeyemi" [ref=f3e557]':
+                - generic [ref=f3e558]:
+                  - generic [ref=f3e559]:
+                    - paragraph [ref=f3e560]: Cart Service
+                    - code [ref=f3e561]: svc-cart
+                  - generic [ref=f3e562]:
+                    - generic [ref=f3e563]: high
+                    - generic "2 dependency hop(s) from the changed service" [ref=f3e564]: 2 hops
+                - paragraph [ref=f3e565]: "Owner: Noah Adeyemi"
+              - 'button "Storefront Web svc-storefront high 3 hops Owner: Noah Adeyemi" [ref=f3e566]':
+                - generic [ref=f3e567]:
+                  - generic [ref=f3e568]:
+                    - paragraph [ref=f3e569]: Storefront Web
+                    - code [ref=f3e570]: svc-storefront
+                  - generic [ref=f3e571]:
+                    - generic [ref=f3e572]: high
+                    - generic "3 dependency hop(s) from the changed service" [ref=f3e573]: 3 hops
+                - paragraph [ref=f3e574]: "Owner: Noah Adeyemi"
+              - 'button "Promotions Service svc-promo medium 3 hops Owner: Noah Adeyemi" [ref=f3e575]':
+                - generic [ref=f3e576]:
+                  - generic [ref=f3e577]:
+                    - paragraph [ref=f3e578]: Promotions Service
+                    - code [ref=f3e579]: svc-promo
+                  - generic [ref=f3e580]:
+                    - generic [ref=f3e581]: medium
+                    - generic "3 dependency hop(s) from the changed service" [ref=f3e582]: 3 hops
+                - paragraph [ref=f3e583]: "Owner: Noah Adeyemi"
+          - generic [ref=f3e584]:
+            - heading "Recommended next steps" [level=2] [ref=f3e585]
+            - list [ref=f3e586]:
+              - listitem [ref=f3e587]:
+                - generic [ref=f3e588]: "1."
+                - text: Get sign-off from the owners of every critical impacted service before any cutover.
+                - paragraph [ref=f3e589]: 3 critical service(s) depend on the service being replaced within the configured traversal depth.
+                - generic [ref=f3e590]:
+                  - button "Lena Fischer" [ref=f3e591]
+                  - button "Sofia Ivanova" [ref=f3e592]
+              - listitem [ref=f3e593]:
+                - generic [ref=f3e594]: "2."
+                - text: Route the change review to engineers with recorded project or incident history on the impacted services.
+                - paragraph [ref=f3e595]: 10 people have recorded engagement with the impacted services.
+                - generic [ref=f3e596]:
+                  - button "Lena Fischer" [ref=f3e597]
+                  - button "Marcus Oyelaran" [ref=f3e598]
+                  - button "Priya Raman" [ref=f3e599]
+                  - button "Amara Osei" [ref=f3e600]
+                  - button "Sofia Ivanova" [ref=f3e601]
+              - listitem [ref=f3e602]:
+                - generic [ref=f3e603]: "3."
+                - text: Review the recorded postmortems for the most severe incidents on this path before planning the migration.
+                - paragraph [ref=f3e604]: 4 sev1/sev2 incident(s) are recorded against these services; each is a concrete failure mode to test against.
+              - listitem [ref=f3e605]:
+                - generic [ref=f3e606]: "4."
+                - text: Verify that every shared dependency supports both services simultaneously during the migration window.
+                - paragraph [ref=f3e607]: "3 service(s) are dependencies of both the old and the replacement service: Fraud Scoring Gateway, General Ledger Sync, Webhook Dispatcher"
+          - generic [ref=f3e608]:
+            - heading "Recalled from memory" [level=2] [ref=f3e609]
+            - list [ref=f3e610]:
+              - listitem [ref=f3e611]:
+                - paragraph [ref=f3e612]: Can we replace Payment Service A with Payment Service B? What could break, who should review it, and why do we use the current service?
+                - paragraph [ref=f3e613]: inv-edd38a7788ea
+              - listitem [ref=f3e614]:
+                - paragraph [ref=f3e615]: Can we replace Payment Service A with Payment Service B? What could break, who should review it, and why do we use the current service?
+                - paragraph [ref=f3e616]: inv-2454b18f476d
+          - generic [ref=f3e617]:
+            - heading "Reasoning trace" [level=2] [ref=f3e618]
+            - list [ref=f3e619]:
+              - listitem [ref=f3e620]:
+                - generic [ref=f3e624]:
+                  - generic [ref=f3e625]:
+                    - generic [ref=f3e626]: Classify question and choose strategy
+                    - code [ref=f3e627]: planner
+                    - generic [ref=f3e628]: 820ms
+                  - paragraph [ref=f3e629]: "Intent: replacement (no model available)"
+              - listitem [ref=f3e630]:
+                - generic [ref=f3e635]:
+                  - generic [ref=f3e636]: Resolve 'Payment Service A (LegacyPay)'
+                  - code [ref=f3e637]: resolve_entity
+                  - generic [ref=f3e638]: 21ms
+              - listitem [ref=f3e639]:
+                - generic [ref=f3e644]:
+                  - generic [ref=f3e645]: Resolve 'Payment Service B (PayFlow)'
+                  - code [ref=f3e646]: resolve_entity
+                  - generic [ref=f3e647]: 21ms
+              - listitem [ref=f3e648]:
+                - generic [ref=f3e653]:
+                  - generic [ref=f3e654]: Recall previous investigations
+                  - code [ref=f3e655]: recall_investigations
+                  - generic [ref=f3e656]: 46ms
+              - listitem [ref=f3e657]:
+                - generic [ref=f3e662]:
+                  - generic [ref=f3e663]: Impact analysis for svc-payment-legacy
+                  - code [ref=f3e664]: dependency_impact
+                  - generic [ref=f3e665]: 65ms
+              - listitem [ref=f3e666]:
+                - generic [ref=f3e671]:
+                  - generic [ref=f3e672]: Upstream dependencies of svc-payment-legacy
+                  - code [ref=f3e673]: upstream_dependencies
+                  - generic [ref=f3e674]: 21ms
+              - listitem [ref=f3e675]:
+                - generic [ref=f3e680]:
+                  - generic [ref=f3e681]: Resolve service ownership
+                  - code [ref=f3e682]: owners_of
+                  - generic [ref=f3e683]: 22ms
+              - listitem [ref=f3e684]:
+                - generic [ref=f3e689]:
+                  - generic [ref=f3e690]: Find engineers with relevant history
+                  - code [ref=f3e691]: relevant_engineers
+                  - generic [ref=f3e692]: 26ms
+              - listitem [ref=f3e693]:
+                - generic [ref=f3e698]:
+                  - generic [ref=f3e699]: Retrieve related incidents
+                  - code [ref=f3e700]: related_incidents
+                  - generic [ref=f3e701]: 24ms
+              - listitem [ref=f3e702]:
+                - generic [ref=f3e707]:
+                  - generic [ref=f3e708]: Retrieve architecture decisions
+                  - code [ref=f3e709]: decision_history
+                  - generic [ref=f3e710]: 22ms
+              - listitem [ref=f3e711]:
+                - generic [ref=f3e716]:
+                  - generic [ref=f3e717]: Retrieve supporting documents
+                  - code [ref=f3e718]: supporting_documents
+                  - generic [ref=f3e719]: 22ms
+              - listitem [ref=f3e720]:
+                - generic [ref=f3e725]:
+                  - generic [ref=f3e726]: Compare dependencies of svc-payment-legacy and svc-payment-v2
+                  - code [ref=f3e727]: shared_dependencies
+                  - generic [ref=f3e728]: 21ms
+              - listitem [ref=f3e729]:
+                - generic [ref=f3e734]:
+                  - generic [ref=f3e735]: Upstream dependencies of svc-payment-v2
+                  - code [ref=f3e736]: upstream_dependencies
+                  - generic [ref=f3e737]: 22ms
+              - listitem [ref=f3e738]:
+                - generic [ref=f3e742]:
+                  - generic [ref=f3e743]:
+                    - generic [ref=f3e744]: decision_history (budget exhausted)
+                    - code [ref=f3e745]: decision_history
+                  - paragraph [ref=f3e746]: Tool call budget of 12 exhausted during investigation
+              - listitem [ref=f3e747]:
+                - generic [ref=f3e751]:
+                  - generic [ref=f3e752]:
+                    - generic [ref=f3e753]: supporting_documents (budget exhausted)
+                    - code [ref=f3e754]: supporting_documents
+                  - paragraph [ref=f3e755]: Tool call budget of 12 exhausted during investigation
+              - listitem [ref=f3e756]:
+                - generic [ref=f3e760]:
+                  - generic [ref=f3e761]:
+                    - generic [ref=f3e762]: owners_of (budget exhausted)
+                    - code [ref=f3e763]: owners_of
+                  - paragraph [ref=f3e764]: Tool call budget of 12 exhausted during investigation
+              - listitem [ref=f3e765]:
+                - generic [ref=f3e769]:
+                  - generic [ref=f3e770]:
+                    - generic [ref=f3e771]: Compose grounded answer
+                    - code [ref=f3e772]: deterministic fallback
+                  - paragraph [ref=f3e773]: Model unavailable - answer composed directly from graph evidence
+              - listitem [ref=f3e774]:
+                - generic [ref=f3e778]:
+                  - generic [ref=f3e779]:
+                    - generic [ref=f3e780]: Verify claims against evidence
+                    - code [ref=f3e781]: critic
+                  - paragraph [ref=f3e782]: 7 citation(s) checked, 5 ungrounded, 0 contradiction(s)
+              - listitem [ref=f3e783]:
+                - generic [ref=f3e787]:
+                  - generic [ref=f3e788]:
+                    - generic [ref=f3e789]: Apply critic verdict
+                    - code [ref=f3e790]: finalize
+                  - paragraph [ref=f3e791]: 5 ungrounded claim(s) labelled
+              - listitem [ref=f3e792]:
+                - generic [ref=f3e795]:
+                  - generic [ref=f3e796]:
+                    - generic [ref=f3e797]: Persist investigation for future sessions
+                    - code [ref=f3e798]: save_investigation
+                  - paragraph [ref=f3e799]: 2 citation(s) linked
+          - generic [ref=f3e800]:
+            - heading "History" [level=2] [ref=f3e801]
+            - list [ref=f3e802]:
+              - listitem [ref=f3e803]:
+                - button [ref=f3e804]:
+                  - paragraph [ref=f3e805]: Can we replace Payment Service A with Payment Service B? What could break, who should review it, and why do we use the current service?
+                  - paragraph [ref=f3e806]: 2026-10-15 04:50 · 2 cited
+              - listitem [ref=f3e807]:
+                - button [ref=f3e808]:
+                  - paragraph [ref=f3e809]: Can we replace Payment Service A with Payment Service B? What could break, who should review it, and why do we use the current service?
+                  - paragraph [ref=f3e810]: 2026-10-15 04:44 · 2 cited
+              - listitem [ref=f3e811]:
+                - button [ref=f3e812]:
+                  - paragraph [ref=f3e813]: Can we replace Payment Service A with Payment Service B? What could break, who should review it, and why do we use the current service?
+                  - paragraph [ref=f3e814]: 2026-10-15 04:43 · 2 cited
+  - generic [ref=f3e31] [cursor=pointer]:
+    - button "Open Next.js Dev Tools" [ref=f3e32]
+    - generic [ref=f3e815]:
+      - button "Open issues overlay" [ref=f3e816]:
+        - generic [ref=f3e817]:
+          - generic [aria-hidden] [ref=f3e818]: "11"
+          - generic [ref=f3e819]: "12"
+        - generic [ref=f3e820]:
+          - text: Issue
+          - generic [aria-hidden] [ref=f3e821]: s
+      - button "Collapse issues badge" [ref=f3e822]
+  - alert [ref=f3e36]

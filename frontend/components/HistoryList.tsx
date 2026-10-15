@@ -1,11 +1,11 @@
 "use client";
 
 /**
- * Past investigations.
+ * Past investigations — the visible proof of cross-session memory.
  *
- * This is the visible proof of cross-session memory: an investigation run now
- * should appear in the sidebar of the next one, and selecting an entry here
- * reuses its question.
+ * Selecting one reuses its question rather than navigating away, because the
+ * follow-up is the interesting move: ask something related and watch the agent
+ * recall what it already found.
  */
 
 import type { InvestigationSummary } from "@/lib/types";
@@ -19,41 +19,49 @@ interface HistoryListProps {
 
 export default function HistoryList({ items, activeId, loading, onSelect }: HistoryListProps) {
   if (loading) {
-    return <p className="text-xs text-slate-500">Loading history…</p>;
+    return <p className="font-ui text-xs text-ink-faint">Loading history…</p>;
   }
 
   if (items.length === 0) {
     return (
-      <p className="text-xs leading-relaxed text-slate-500">
-        No investigations yet. Run the primary demo and it will be saved to the graph —
-        then ask a follow-up question in this same session to see it recalled.
+      <p className="font-ui text-xs leading-relaxed text-ink-faint">
+        Nothing saved yet. Run the primary demo and it will be written to the graph —
+        then ask a related follow-up in this session to see it recalled.
       </p>
     );
   }
 
   return (
-    <ul className="space-y-1.5">
-      {items.map((item) => (
-        <li key={item.id}>
-          <button
-            type="button"
-            onClick={() => onSelect(item.question)}
-            disabled={!item.question}
-            className={[
-              "w-full rounded-lg border px-2.5 py-2 text-left transition disabled:cursor-default",
-              activeId === item.id
-                ? "border-sky-600 bg-sky-500/10"
-                : "border-slate-800 bg-slate-900/40 hover:border-slate-700",
-            ].join(" ")}
-          >
-            <p className="line-clamp-2 text-xs leading-relaxed text-slate-300">{item.question}</p>
-            <p className="mt-1 font-mono text-[10px] text-slate-500">
-              {item.created_at?.slice(0, 16).replace("T", " ") ?? item.id}
-              {item.cited_ids.length > 0 && ` · ${item.cited_ids.length} cited`}
-            </p>
-          </button>
-        </li>
-      ))}
-    </ul>
+    <ol className="space-y-3">
+      {items.map((item) => {
+        const active = activeId === item.id;
+        return (
+          <li key={item.id}>
+            <button
+              type="button"
+              onClick={() => onSelect(item.question)}
+              disabled={!item.question}
+              className={[
+                "block w-full border-l-2 pl-3 text-left transition",
+                active ? "border-link" : "border-rule-soft hover:border-rule",
+              ].join(" ")}
+            >
+              <p
+                className={[
+                  "line-clamp-2 font-ui text-xs leading-relaxed",
+                  active ? "text-ink" : "text-ink-soft",
+                ].join(" ")}
+              >
+                {item.question}
+              </p>
+              <p className="mt-1 font-mono text-[0.65rem] text-ink-faint">
+                {item.created_at?.slice(0, 16).replace("T", " ") ?? item.id}
+                {item.cited_ids.length > 0 && ` · ${item.cited_ids.length} cited`}
+              </p>
+            </button>
+          </li>
+        );
+      })}
+    </ol>
   );
 }

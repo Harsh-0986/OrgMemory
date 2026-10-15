@@ -237,6 +237,50 @@ class TestEvidenceGrounding:
         assert "downstream dependencies" in gaps
         assert "architecture decisions" in gaps
 
+    def test_grounded_answer_is_not_flagged_by_the_critic(self, fake_repo):
+        """The critic must not cry wolf on a fully grounded answer.
+
+        Regression: the whitelist only read evidence `source_ids`, which omits
+        the question's own subject service and the projects behind engineer
+        history. Both are legitimately citable, so the critic reported them as
+        fabricated and appended a spurious "Verification notes" section to a
+        correct answer.
+        """
+        from app.agent.nodes import _CITATION_RE, _known_ids
+
+        state = run_investigation(DEMO_QUESTION, repository=fake_repo)
+        answer = state.get("answer", "")
+        known = _known_ids(state)
+
+        cited = set(_CITATION_RE.findall(answer))
+        assert cited, "the answer should cite something for this test to mean anything"
+
+        fabricated = {c for c in cited if c not in known}
+        assert not fabricated, f"critic would flag grounded citations: {fabricated}"
+
+    def test_subject_service_is_always_grounded(self, fake_repo):
+        """Impact traversal returns downstream services, never the subject."""
+        from app.agent.nodes import _known_ids
+
+        state = run_investigation(DEMO_QUESTION, repository=fake_repo)
+        known = _known_ids(state)
+
+        assert "svc-payment-legacy" in known
+        assert "svc-payment-v2" in known
+        # Projects behind engineer history are citable too.
+        assert "proj-payments-modernization" in known
+
+    def test_unknown_ids_are_still_caught(self, fake_repo):
+        """Widening the whitelist must not stop catching real fabrications."""
+        from app.agent.nodes import _CITATION_RE, _known_ids
+
+        state = run_investigation(DEMO_QUESTION, repository=fake_repo)
+        known = _known_ids(state)
+
+        for bogus in ["svc-does-not-exist", "per-imaginary-person", "dec-fake-2020"]:
+            assert bogus not in known
+        assert set(_CITATION_RE.findall("[svc-does-not-exist]")) - known
+
 
 # --------------------------------------------------------------------------
 # End-to-end pipeline (no model, no database)
