@@ -32,6 +32,11 @@ def get_llm() -> Any:
 
 def _build_llm(settings: Settings) -> Any:
     """Construct a `ChatOpenAI` client aimed at the configured NIM endpoint."""
+    if not settings.llm_enabled:
+        raise LLMUnavailable(
+            "The language model is disabled (LLM_ENABLED=false). Investigations "
+            "will run using the deterministic writer instead."
+        )
     if not settings.nvidia_api_key:
         raise LLMUnavailable(
             "NVIDIA_API_KEY is not configured. Add it to your .env file to enable "
@@ -65,6 +70,6 @@ def reset_llm_cache() -> None:
 
 
 def llm_is_configured() -> bool:
-    """True when a model endpoint and API key are both present."""
+    """True when a model endpoint and API key are both present and enabled."""
     settings = get_settings()
-    return bool(settings.nvidia_api_key and settings.nvidia_base_url)
+    return bool(settings.llm_enabled and settings.nvidia_api_key and settings.nvidia_base_url)

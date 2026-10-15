@@ -65,6 +65,10 @@ class Settings(BaseSettings):
     falkordb_tls: bool = False
 
     # -- LLM (NVIDIA NIM, OpenAI-compatible) ------------------------------
+    # An explicit off-switch. With this false the agent still runs end to end
+    # using its deterministic writer, so the demo never depends on a metered
+    # endpoint being reachable.
+    llm_enabled: bool = True
     nvidia_api_key: str = ""
     nvidia_base_url: str = "https://integrate.api.nvidia.com/v1"
     nvidia_model: str = "z-ai/glm-5.3-flash"

@@ -8,6 +8,7 @@ live FalkorDB instance to prove the Cypher agrees with the reference model.
 from __future__ import annotations
 
 import re
+from collections import Counter
 
 import pytest
 
@@ -280,7 +281,28 @@ class TestLiveFalkorDB:
         overview = GraphRepository().overview()
         assert overview["node_counts"].get("Service") == len(data.SERVICES)
         assert overview["node_counts"].get("Person") == len(data.PEOPLE)
-        assert overview["total_relationships"] == len(data.all_relationships())
+        assert overview["total_relationships"] >= len(data.all_relationships())
+
+        # Per-type is the meaningful check. The total grows every time a
+        # question is asked because `Investigation -[:CITED]->` edges
+        # accumulate, so comparing totals would make the test order-dependent.
+        counts = Counter(rel for _, rel, _ in data.all_relationships())
+        for rel_type, expected in counts.items():
+            assert overview["relationship_counts"].get(rel_type) == expected, rel_type
+
+    def test_investigation_memory_lives_in_the_graph(self, integration):
+        """Cross-session memory must be stored as edges, not app memory."""
+        from app.graph.repository import GraphRepository
+
+        repo = GraphRepository()
+        rows = repo.list_investigations(limit=5)
+        assert rows, "expected at least one stored investigation"
+
+        record = repo.get_investigation(rows[0]["id"])
+        assert record is not None
+        assert record["cited_entities"], "stored investigation should cite graph nodes"
+        for node in record["cited_entities"]:
+            assert repo.get_entity(node.id) is not None
 
     def test_impact_matches_reference_model(self, integration):
         from app.graph.repository import GraphRepository

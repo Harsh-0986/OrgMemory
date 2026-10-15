@@ -45,9 +45,12 @@ class FakeGraphRepository:
         for person, _, svc in data.OWNERSHIP:
             self.owners[svc].append(person)
 
+        # Keyed by project: `relevant_engineers` asks "who worked on this project".
+        # Indexing by person here silently returned nothing, which made the
+        # reference model disagree with the real RELEVANT_ENGINEERS Cypher.
         self.project_work: dict[str, list[str]] = defaultdict(list)
         for person, _, proj in data.PROJECT_WORK:
-            self.project_work[person].append(proj)
+            self.project_work[proj].append(person)
 
         self.project_uses: dict[str, list[str]] = defaultdict(list)
         for proj, _, svc in data.PROJECT_USAGE:
@@ -445,6 +448,36 @@ class FakeGraphRepository:
 # --------------------------------------------------------------------------
 # Fixtures
 # --------------------------------------------------------------------------
+
+
+@pytest.fixture(autouse=True)
+def _no_llm_calls_in_tests():
+    """Keep the suite off the metered model endpoint.
+
+    `NVIDIA_API_KEY` is present in the developer's `.env`, so without this every
+    agent test would make live calls to a paid endpoint: slow, flaky, and
+    quietly expensive. Turning the model off is a real application setting
+    (`LLM_ENABLED=false`), not a test-only hack, so the suite exercises the same
+    deterministic path the app uses when no model is available.
+    """
+    import os
+
+    from app.config import get_settings
+    from app.llm import get_llm
+
+    previous = os.environ.get("LLM_ENABLED")
+    os.environ["LLM_ENABLED"] = "false"
+    get_settings.cache_clear()
+    get_llm.cache_clear()
+    try:
+        yield
+    finally:
+        if previous is None:
+            os.environ.pop("LLM_ENABLED", None)
+        else:
+            os.environ["LLM_ENABLED"] = previous
+        get_settings.cache_clear()
+        get_llm.cache_clear()
 
 
 @pytest.fixture
