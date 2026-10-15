@@ -1,0 +1,43 @@
+# ---- Secrets -------------------------------------------------------------
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# ---- Python --------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+dist/
+build/
+
+# ---- Node / Next.js ------------------------------------------------------
+node_modules/
+.next/
+out/
+build/
+.turbo/
+*.tsbuildinfo
+next-env.d.ts
+
+# ---- Local FalkorDB artefacts -------------------------------------------
+infra/falkordb/*.so
+infra/falkordb/*.zip
+infra/falkordb/dump.rdb
+
+# ---- Editors / OS --------------------------------------------------------
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# ---- Misc ----------------------------------------------------------------
+*.log
+.DS_Store

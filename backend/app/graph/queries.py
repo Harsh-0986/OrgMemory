@@ -1,0 +1,341 @@
+"""Allowlisted Cypher query templates.
+
+This module is the security boundary of the whole application. The LLM never
+sees, generates, or influences Cypher text - it can only select from the tool
+names registered in `app.agent.tools`, each of which calls a method here with
+validated arguments. Every template is a module-level constant and every
+user-supplied value travels through the `params` dict.
+
+Two conventions matter for correctness:
+
+* **Impact traverses DEPENDS_ON backwards.** `(A)-[:DEPENDS_ON]->(B)` means A
+  breaks if B breaks, so asking "what breaks if B changes" means matching
+  services that point *into* the changed service.
+* **Paths are returned as flat maps** (`node_ids`, `rel_types`, `depth`) rather
+  than native path objects, so the client never has to guess at serialisation
+  details and every hop stays inspectable.
+"""
+
+from __future__ import annotations
+
+from typing import Any
+
+from app.config import get_settings
+
+# --------------------------------------------------------------------------
+# Read queries
+# --------------------------------------------------------------------------
+
+# Node/relationship projections keep the client from having to know about
+# FalkorDB's internal representation.
+_NODE_PROJECTION = (
+    "[n IN nodes(p) | {id: n.id, label: head(labels(n))}]"
+)
+_REL_PROJECTION = "[r IN relationships(p) | type(r)]"
+
+#: Impacted services, with the shortest hop count from the changed service.
+DEPENDENCY_IMPACT = """
+MATCH p = (impacted:Service)-[:DEPENDS_ON*1..$max_depth]->(target:Service {id: $service_id})
+WITH impacted, min(length(p)) AS depth
+RETURN
+  impacted.id AS id,
+  impacted.name AS name,
+  impacted.description AS description,
+  impacted.criticality AS criticality,
+  impacted.tier AS tier,
+  depth
+ORDER BY depth ASC, impacted.criticality ASC, id ASC
+LIMIT $limit
+"""
+
+#: The actual dependency paths, so the UI can draw and highlight them.
+DEPENDENCY_PATHS = f"""
+MATCH p = (impacted:Service)-[:DEPENDS_ON*1..$max_depth]->(target:Service {{id: $service_id}})
+RETURN
+  {_NODE_PROJECTION} AS nodes,
+  {_REL_PROJECTION} AS rel_types,
+  length(p) AS depth
+ORDER BY depth ASC
+LIMIT $limit
+"""
+
+#: Services the given service depends on (its own dependencies).
+UPSTREAM_DEPENDENCIES = """
+MATCH p = (target:Service {id: $service_id})-[:DEPENDS_ON*1..$max_depth]->(dep:Service)
+WITH dep, min(length(p)) AS depth
+RETURN
+  dep.id AS id,
+  dep.name AS name,
+  dep.description AS description,
+  dep.criticality AS criticality,
+  depth
+ORDER BY depth ASC, id ASC
+LIMIT $limit
+"""
+
+#: Shared dependencies - services both the old and new service depend on.
+#: These are the real migration risks: shared infrastructure that must support
+#: both paths simultaneously.
+SHARED_DEPENDENCIES = """
+MATCH (a:Service)-[:DEPENDS_ON]->(shared:Service)<-[:DEPENDS_ON]-(b:Service)
+WHERE a.id = $a_id AND b.id = $b_id
+RETURN DISTINCT
+  shared.id AS id,
+  shared.name AS name,
+  shared.description AS description,
+  shared.criticality AS criticality
+ORDER BY id ASC
+LIMIT $limit
+"""
+
+SERVICE_OWNERS = """
+UNWIND $service_ids AS sid
+MATCH (person:Person)-[:OWNS]->(service:Service {id: sid})
+RETURN
+  service.id AS service_id,
+  service.name AS service_name,
+  service.criticality AS criticality,
+  person.id AS person_id,
+  person.name AS person_name,
+  person.role AS person_role,
+  person.team AS person_team
+ORDER BY service_id ASC, person_name ASC
+LIMIT $limit
+"""
+
+#: People with hands-on history on projects that touch the impacted services,
+#: plus anyone who resolved an incident on them.
+RELEVANT_ENGINEERS = """
+UNWIND $service_ids AS sid
+MATCH (person:Person)-[:WORKED_ON]->(project:Project)-[:USES]->(service:Service {id: sid})
+RETURN
+  person.id AS person_id,
+  person.name AS person_name,
+  person.role AS person_role,
+  person.team AS person_team,
+  project.id AS project_id,
+  project.name AS project_name,
+  project.status AS project_status,
+  service.id AS service_id,
+  service.name AS service_name,
+  'project' AS reason
+UNION
+UNWIND $service_ids AS sid
+MATCH (person:Person)-[:RESOLVED]->(incident:Incident)-[:AFFECTED]->(service:Service {id: sid})
+RETURN
+  person.id AS person_id,
+  person.name AS person_name,
+  person.role AS person_role,
+  person.team AS person_team,
+  incident.id AS project_id,
+  incident.title AS project_name,
+  incident.severity AS project_status,
+  service.id AS service_id,
+  service.name AS service_name,
+  'incident' AS reason
+LIMIT $limit
+"""
+
+RELATED_INCIDENTS = """
+UNWIND $service_ids AS sid
+MATCH (incident:Incident)-[:AFFECTED]->(service:Service {id: sid})
+OPTIONAL MATCH (incident)-[:CAUSED_BY]->(cause:Service)
+OPTIONAL MATCH (resolver:Person)-[:RESOLVED]->(incident)
+RETURN
+  incident.id AS id,
+  incident.title AS title,
+  incident.severity AS severity,
+  incident.occurred_at AS occurred_at,
+  incident.summary AS summary,
+  incident.root_cause_known AS root_cause_known,
+  service.id AS service_id,
+  service.name AS service_name,
+  collect(DISTINCT cause.id) AS cause_ids,
+  collect(DISTINCT cause.name) AS cause_names,
+  collect(DISTINCT resolver.id) AS resolver_ids,
+  collect(DISTINCT resolver.name) AS resolver_names
+ORDER BY occurred_at DESC
+LIMIT $limit
+"""
+
+DECISION_HISTORY = """
+UNWIND $service_ids AS sid
+MATCH (decision:Decision)-[:AFFECTS]->(service:Service {id: sid})
+OPTIONAL MATCH (superseding:Decision)-[:SUPERSEDES]->(decision)
+RETURN
+  decision.id AS id,
+  decision.title AS title,
+  decision.date AS date,
+  decision.rationale AS rationale,
+  decision.status AS status,
+  service.id AS service_id,
+  service.name AS service_name,
+  collect(DISTINCT superseding.id) AS superseded_by_ids,
+  collect(DISTINCT superseding.title) AS superseded_by_titles
+ORDER BY date DESC
+LIMIT $limit
+"""
+
+SUPPORTING_DOCUMENTS = """
+UNWIND $entity_ids AS eid
+MATCH (doc:Document)-[rel]->(entity)
+WHERE entity.id = eid AND type(rel) IN ['DESCRIBES', 'SUPPORTS']
+RETURN
+  doc.id AS id,
+  doc.title AS title,
+  doc.source_type AS source_type,
+  doc.source_uri AS source_uri,
+  doc.content AS content,
+  entity.id AS entity_id,
+  entity.name AS entity_name,
+  head(labels(entity)) AS entity_label,
+  type(rel) AS relation_type
+ORDER BY id ASC
+LIMIT $limit
+"""
+
+#: Candidate replacement services, ranked by the caller's description of them.
+#: Matching is fuzzy and read-only - it only proposes `service_id` values that
+#: the caller then confirms by exact id.
+SERVICE_SEARCH = """
+MATCH (s:Service)
+WHERE toLower(s.name) CONTAINS toLower($needle)
+   OR toLower(s.id) CONTAINS toLower($needle)
+   OR toLower(coalesce(s.description, '')) CONTAINS toLower($needle)
+RETURN
+  s.id AS id,
+  s.name AS name,
+  s.description AS description,
+  s.criticality AS criticality,
+  s.tier AS tier
+ORDER BY
+  CASE WHEN toLower(s.name) = toLower($needle) THEN 0
+       WHEN toLower(s.id) = toLower($needle) THEN 0
+       ELSE 1 END ASC,
+  s.name ASC
+LIMIT $limit
+"""
+
+ENTITY_SEARCH = """
+MATCH (n)
+WHERE toLower(coalesce(n.name, n.title, '')) CONTAINS toLower($needle)
+   OR toLower(n.id) CONTAINS toLower($needle)
+RETURN
+  n.id AS id,
+  head(labels(n)) AS label,
+  coalesce(n.name, n.title) AS name,
+  $limit AS _unused
+ORDER BY id ASC
+LIMIT $limit
+"""
+
+GRAPH_OVERVIEW = """
+MATCH (n)
+RETURN head(labels(n)) AS label, count(n) AS count
+ORDER BY count DESC
+LIMIT $limit
+"""
+
+GRAPH_EDGE_COUNTS = """
+MATCH (a)-[r]->(b)
+RETURN type(r) AS rel_type, count(r) AS count
+ORDER BY count DESC
+LIMIT $limit
+"""
+
+GRAPH_NEIGHBORHOOD = f"""
+MATCH p = (entity)-[*1..$max_depth]-(neighbour)
+WHERE entity.id = $entity_id
+RETURN
+  {_NODE_PROJECTION} AS nodes,
+  {_REL_PROJECTION} AS rel_types,
+  length(p) AS depth
+ORDER BY depth ASC
+LIMIT $limit
+"""
+
+#: Look up a single entity of any label by its exact id.
+ENTITY_BY_ID = """
+MATCH (n {id: $entity_id})
+RETURN n.id AS id, head(labels(n)) AS label, properties(n) AS props
+LIMIT 1
+"""
+
+# --------------------------------------------------------------------------
+# Memory queries
+# --------------------------------------------------------------------------
+
+PREVIOUS_INVESTIGATIONS = """
+MATCH (inv:Investigation)
+WHERE inv.status IN ['completed', 'failed']
+RETURN
+  inv.id AS id,
+  inv.question AS question,
+  inv.created_at AS created_at,
+  inv.answer AS answer,
+  inv.summary AS summary,
+  inv.cited_ids AS cited_ids
+ORDER BY inv.created_at DESC
+LIMIT $limit
+"""
+
+#: Rank past investigations by how many question terms they share.
+#: Term matching is done in Python to keep the Cypher simple and portable.
+STORE_INVESTIGATION = """
+CREATE (inv:Investigation)
+SET inv = $props
+RETURN inv.id AS id
+"""
+
+LINK_CITATIONS = """
+MATCH (inv:Investigation {id: $investigation_id})
+UNWIND $citations AS citation
+MATCH (target {id: citation.id})
+MERGE (inv)-[:CITED]->(target)
+RETURN count(*) AS linked
+"""
+
+INVESTIGATION_BY_ID = """
+MATCH (inv:Investigation {id: $investigation_id})
+RETURN inv.id AS id, properties(inv) AS props
+LIMIT 1
+"""
+
+INVESTIGATION_CITATIONS = f"""
+MATCH p = (inv:Investigation)-[:CITED]->(cited)
+WHERE inv.id = $investigation_id
+RETURN
+  {_NODE_PROJECTION} AS nodes,
+  {_REL_PROJECTION} AS rel_types,
+  length(p) AS depth
+LIMIT $limit
+"""
+
+#: Wipe all investigation memory (dev utility / test isolation).
+CLEAR_INVESTIGATIONS = """
+MATCH (inv:Investigation)
+DETACH DELETE inv
+RETURN count(inv) AS deleted
+"""
+
+
+def default_limit(default: int = 50) -> int:
+    """Clamp a caller-supplied limit to the configured maximum."""
+    return min(max(1, default), get_settings().graph_max_results)
+
+
+def max_depth(requested: int | None = None) -> int:
+    """Clamp a requested traversal depth to the configured ceiling."""
+    ceiling = get_settings().graph_max_dependency_depth
+    if requested is None:
+        return ceiling
+    return min(max(1, requested), ceiling)
+
+
+def row_to_dict(row: Any) -> dict[str, Any]:
+    """Normalise a FalkorDB result row into a plain dictionary."""
+    if isinstance(row, dict):
+        return dict(row)
+    if hasattr(row, "properties"):  # a bare node was returned
+        return dict(row.properties)
+    return {"value": row}
