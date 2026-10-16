@@ -6,6 +6,12 @@ everything is validated against the schema before it is written.
 
 Both entry points do the same work - a file, or pasted text - so the UI can
 offer whichever suits the user without a second code path.
+
+Ingestion is slow on purpose-built terms: conversion is local, but extraction is
+a model call that can legitimately take minutes on a slow provider. That work is
+synchronous and cannot be awaited, so both routes hand it to a worker thread.
+Left on the event loop it would freeze the entire API for the duration, which is
+exactly what it did: a single upload made `/health` take as long as the upload.
 """
 
 from __future__ import annotations
@@ -13,6 +19,7 @@ from __future__ import annotations
 import logging
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from starlette.concurrency import run_in_threadpool
 
 from app.api.deps import get_repository
 from app.config import get_settings
@@ -49,7 +56,12 @@ def ingest_text(
     payload: IngestTextRequest,
     repo: GraphRepository = Depends(get_repository),
 ) -> IngestReport:
-    """Ingest pasted text. Same pipeline as a file, without conversion."""
+    """Ingest pasted text. Same pipeline as a file, without conversion.
+
+    Declared `def` rather than `async def` on purpose: the work inside is
+    synchronous and blocking, so FastAPI runs it in a worker thread instead of on
+    the event loop. See the module docstring for what happens when it does not.
+    """
     return _run(
         repository=repo,
         filename="",
@@ -69,9 +81,17 @@ async def ingest_file(
     source_uri: str = Form(""),
     repo: GraphRepository = Depends(get_repository),
 ) -> IngestReport:
-    """Ingest an uploaded file, converted to Markdown with MarkItDown."""
+    """Ingest an uploaded file, converted to Markdown with MarkItDown.
+
+    This route has to be `async def` because reading an upload is async, but the
+    pipeline behind it is not. Everything blocking is therefore handed to a
+    worker thread: without that, one upload freezes every other request for as
+    long as the model takes, because the event loop is the only thread serving
+    them.
+    """
     data = await file.read()
-    return _run(
+    return await run_in_threadpool(
+        _run,
         repository=repo,
         filename=file.filename or "upload.txt",
         data=data,

@@ -10,11 +10,15 @@ model is configured.
 
 from __future__ import annotations
 
+import asyncio
 import json
+import time
 
+import httpx
 import pytest
 
 from app.ingest import (
+    ExtractionOutcome,
     UnsupportedDocument,
     ingest_document,
     to_markdown,
@@ -467,6 +471,34 @@ class TestIngestDocument:
         assert document_id_for("t", "body") == document_id_for("t", "body")
         assert document_id_for("t", "body") != document_id_for("t", "other")
 
+    def test_a_pasted_document_is_titled_from_its_first_line(self, fake_repo):
+        """No filename and no title: the author's own heading is the title."""
+        report = ingest_document(
+            repository=fake_repo,
+            text="# Payments Runbook\n\nHow to reconcile the ledger.",
+            invoke=lambda *a, **k: "{}",
+        )
+        assert report.title == "Payments Runbook"
+
+    def test_a_title_still_wins_over_the_first_line(self, fake_repo):
+        report = ingest_document(
+            repository=fake_repo,
+            text="# Payments Runbook\n\nBody.",
+            title="Ledger notes",
+            invoke=lambda *a, **k: "{}",
+        )
+        assert report.title == "Ledger notes"
+
+    def test_an_untitled_filename_is_tidied_into_a_title(self, fake_repo):
+        """`payments_runbook.md` should read as "payments runbook"."""
+        report = ingest_document(
+            repository=fake_repo,
+            filename="payments_runbook.md",
+            data=b"Body with no heading.",
+            invoke=lambda *a, **k: "{}",
+        )
+        assert report.title == "payments runbook"
+
     def test_an_unknown_source_type_falls_back(self, fake_repo):
         report = ingest_document(
             repository=fake_repo,
@@ -571,3 +603,94 @@ class TestIngestApi:
             files={"file": ("note.md", b"", "text/markdown")},
         )
         assert response.status_code == 400
+
+
+class TestIngestDoesNotBlockTheServer:
+    """The bug this guards against: one upload freezing the whole API.
+
+    Ingestion is synchronous and can take minutes, because extraction is a model
+    call. The `/file` route must be `async def` to read the upload, so if the
+    pipeline runs inline it runs *on the event loop* - and the event loop is the
+    only thread serving every other request. The symptom was that uploading a
+    document made every other endpoint hang for as long as the upload took.
+
+    These tests are the reason that cannot come back, and they assert on latency
+    rather than on the presence of `run_in_threadpool`, because the latency is
+    the thing that was broken.
+    """
+
+    @staticmethod
+    def _slow_pipeline(monkeypatch, seconds: float = 1.0) -> None:
+        """Stand in for a slow model, without calling one."""
+
+        def slow_extract(title, markdown, known=None, *, invoke=None):  # noqa: ANN001, ANN202
+            time.sleep(seconds)
+            return ExtractionOutcome(model_used=True)
+
+        monkeypatch.setattr("app.ingest.service.extract_graph", slow_extract)
+
+    @staticmethod
+    def _app(fake_repo, monkeypatch):  # noqa: ANN001, ANN202
+        from app.api import deps
+        from app.main import create_app
+
+        app = create_app()
+        app.dependency_overrides[deps.get_repository] = lambda: fake_repo
+        # Keep /health off a real FalkorDB instance.
+        monkeypatch.setattr("app.api.routes.health.graph_client.ping", lambda: True)
+        return app
+
+    async def test_health_answers_while_an_upload_is_in_flight(
+        self, fake_repo, monkeypatch
+    ):
+        self._slow_pipeline(monkeypatch, seconds=1.0)
+        app = self._app(fake_repo, monkeypatch)
+
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            upload = asyncio.create_task(
+                client.post(
+                    "/api/ingest/file",
+                    files={"file": ("note.md", b"# Note\n\nBody.", "text/markdown")},
+                )
+            )
+
+            # The signal is timer accuracy, not a stopwatch around one request.
+            # A free event loop returns from this sleep on time; a blocked one
+            # cannot fire the timer until the blocking call finishes, so the
+            # overshoot is the blockage. Timing a request afterwards would
+            # measure nothing, because by then the block is already over.
+            started = time.perf_counter()
+            await asyncio.sleep(0.15)
+            overshoot = time.perf_counter() - started - 0.15
+
+            assert overshoot < 0.5, (
+                f"the event loop stalled for {overshoot:.2f}s while an upload was "
+                "in flight: blocking work is running on the loop, not a worker thread"
+            )
+
+            # And unrelated requests must be served promptly in the meantime.
+            started = time.perf_counter()
+            health = await client.get("/health")
+            elapsed = time.perf_counter() - started
+
+            assert health.status_code == 200
+            assert elapsed < 0.5, f"/health took {elapsed:.2f}s while an upload was in flight"
+            assert (await upload).status_code == 200
+
+    async def test_a_slow_upload_still_returns_its_report(self, fake_repo, monkeypatch):
+        """The fix must not turn a slow upload into a failed one."""
+        self._slow_pipeline(monkeypatch, seconds=0.3)
+        app = self._app(fake_repo, monkeypatch)
+
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            response = await client.post(
+                "/api/ingest/file",
+                files={"file": ("note.md", b"# Note\n\nBody.", "text/markdown")},
+            )
+
+        assert response.status_code == 200, response.text
+        assert response.json()["document_id"].startswith("doc-ingested-")

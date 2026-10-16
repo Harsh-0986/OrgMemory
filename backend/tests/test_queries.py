@@ -280,20 +280,49 @@ class TestSharedDependencies:
 
 @pytest.mark.integration
 class TestLiveFalkorDB:
-    def test_counts_match_seed(self, integration):
+    def test_the_seed_is_all_present(self, integration):
+        """The seed must be intact. Extra content is expected, not a failure.
+
+        This used to assert that the live graph was *exactly* the seed, which
+        was true only while nothing could add to it. Ingestion is a feature, so
+        uploading a document legitimately adds nodes and relationships - the
+        moment that shipped, equality became the wrong invariant. What must hold
+        is that nothing from the seed has gone missing, so counts are a floor and
+        every seeded id is checked for presence directly.
+        """
         from app.graph.repository import GraphRepository
 
-        overview = GraphRepository().overview()
-        assert overview["node_counts"].get("Service") == len(data.SERVICES)
-        assert overview["node_counts"].get("Person") == len(data.PEOPLE)
-        assert overview["total_relationships"] >= len(data.all_relationships())
+        repo = GraphRepository()
+        overview = repo.overview()
 
-        # Per-type is the meaningful check. The total grows every time a
-        # question is asked because `Investigation -[:CITED]->` edges
-        # accumulate, so comparing totals would make the test order-dependent.
+        for label, expected in (
+            ("Service", len(data.SERVICES)),
+            ("Person", len(data.PEOPLE)),
+            ("Incident", len(data.INCIDENTS)),
+            ("Decision", len(data.DECISIONS)),
+            ("Project", len(data.PROJECTS)),
+        ):
+            assert overview["node_counts"].get(label, 0) >= expected, label
+
+        # Per-type is the meaningful check. Comparing totals would make the test
+        # order-dependent, because investigation citations accumulate edges.
         counts = Counter(rel for _, rel, _ in data.all_relationships())
         for rel_type, expected in counts.items():
-            assert overview["relationship_counts"].get(rel_type) == expected, rel_type
+            assert overview["relationship_counts"].get(rel_type, 0) >= expected, rel_type
+
+        # Presence, not just arithmetic: a count can survive a swap. One query
+        # per label rather than per entity, because this runs against a cloud
+        # instance and 28 round-trips would be slow for no extra signal.
+        for label, source in (
+            ("Service", data.SERVICES),
+            ("Person", data.PEOPLE),
+            ("Incident", data.INCIDENTS),
+            ("Decision", data.DECISIONS),
+            ("Project", data.PROJECTS),
+        ):
+            present = {row["id"] for row in repo.list_entities(label)}
+            missing = [row["id"] for row in source if row["id"] not in present]
+            assert not missing, f"{label} entities missing from the graph: {missing}"
 
     def test_investigation_memory_lives_in_the_graph(self, integration):
         """Cross-session memory must be stored as edges, not app memory."""
