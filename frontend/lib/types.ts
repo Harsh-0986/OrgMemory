@@ -304,3 +304,33 @@ export interface IngestCapabilities {
   /** Whether ingestion will actually use a model right now. */
   model_available: boolean;
 }
+
+/** Returned immediately when an upload is queued rather than held open. */
+export interface IngestAccepted {
+  job_id: string;
+  poll_url: string;
+  /** The title the document will end up with, known before it is read. */
+  title: string;
+}
+
+/** One finished phase of an ingestion, published as it completes. */
+export interface IngestStep {
+  phase: string;
+  title: string;
+  detail: string;
+  duration_ms: number;
+}
+
+/** The state of one queued ingestion. */
+export interface IngestStatus {
+  job_id: string;
+  status: string;
+  created_at: string;
+  started_at: string | null;
+  finished_at: string | null;
+  steps: IngestStep[];
+  error: string | null;
+  done: boolean;
+  /** Present once the job has settled successfully. */
+  result: IngestReport | null;
+}

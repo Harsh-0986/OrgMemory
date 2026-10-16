@@ -14,8 +14,9 @@ import type {
   InvestigationStatus,
   FullGraphResponse,
   GraphOverview,
+  IngestAccepted,
   IngestCapabilities,
-  IngestReport,
+  IngestStatus,
   InvestigationHistory,
   InvestigationResponse,
 } from "./types";
@@ -37,12 +38,6 @@ export class ApiRequestError extends Error {
 
 /** Abort a request that hangs, so the UI can never sit on a spinner forever. */
 const REQUEST_TIMEOUT_MS = 90_000;
-
-/**
- * Ingestion runs document conversion and then a model call, so it gets a longer
- * leash than a read. A slow local model is not a broken request.
- */
-const INGEST_TIMEOUT_MS = 300_000;
 
 async function request<T>(
   path: string,
@@ -150,12 +145,14 @@ export const api = {
   ingestCapabilities: () => request<IngestCapabilities>("/api/ingest/capabilities"),
 
   /**
-   * Upload a document to be converted to Markdown and mined for entities.
+   * Queue a document for ingestion, and return as soon as it is stored.
    *
-   * Expected to take a while: conversion is local, but extraction is a model
-   * call, so this uses the longer ingestion timeout.
+   * The work behind it is slow: conversion is local, but extraction is a model
+   * call that can take minutes. Holding the connection open for that would mean
+   * one opaque spinner and a request a proxy may kill first, so the upload is
+   * accepted with a job id and `ingestStatus` reports each phase as it finishes.
    */
-  ingestFile: (
+  startIngestFile: (
     file: File,
     options: { title?: string; sourceType?: string; sourceUri?: string } = {},
   ) => {
@@ -164,29 +161,24 @@ export const api = {
     if (options.title) body.append("title", options.title);
     body.append("source_type", options.sourceType ?? "upload");
     if (options.sourceUri) body.append("source_uri", options.sourceUri);
-    return request<IngestReport>(
-      "/api/ingest/file",
-      { method: "POST", body },
-      INGEST_TIMEOUT_MS,
-    );
+    return request<IngestAccepted>("/api/ingest/file", { method: "POST", body });
   },
 
-  /** Ingest pasted text. No conversion step, same pipeline afterwards. */
-  ingestText: (
+  /** Queue pasted text. No conversion step, same pipeline afterwards. */
+  startIngestText: (
     content: string,
     options: { title?: string; sourceType?: string; sourceUri?: string } = {},
   ) =>
-    request<IngestReport>(
-      "/api/ingest/text",
-      {
-        method: "POST",
-        body: JSON.stringify({
-          content,
-          title: options.title ?? "",
-          source_type: options.sourceType ?? "note",
-          source_uri: options.sourceUri ?? "",
-        }),
-      },
-      INGEST_TIMEOUT_MS,
-    ),
+    request<IngestAccepted>("/api/ingest/text", {
+      method: "POST",
+      body: JSON.stringify({
+        content,
+        title: options.title ?? "",
+        source_type: options.sourceType ?? "note",
+        source_uri: options.sourceUri ?? "",
+      }),
+    }),
+
+  ingestStatus: (jobId: string) =>
+    request<IngestStatus>(`/api/ingest/${encodeURIComponent(jobId)}/status`),
 };

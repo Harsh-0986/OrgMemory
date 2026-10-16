@@ -9,17 +9,37 @@
  * refused with the reason. A tool that silently invents entities is worse than
  * one that says "I could not read this", so the failures are as prominent as the
  * successes.
+ *
+ * The upload is *queued*, not held open. Extraction is a model call that can
+ * take minutes, so the POST returns as soon as the document is stored and the
+ * panel polls for progress: each phase appears as it finishes. That is the
+ * difference between a two-minute wait and a two-minute spinner.
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { api, ApiRequestError } from "@/lib/api";
-import type { IngestCapabilities, IngestReport } from "@/lib/types";
+import type { IngestCapabilities, IngestReport, IngestStep } from "@/lib/types";
 
 type Mode = "file" | "paste";
 
+const POLL_MS = 1200;
+
+/**
+ * Deliberately generous, matching the dashboard's investigations. The backend
+ * gives each model call a 60s timeout with two retries, so a slow-but-working
+ * upload can legitimately take minutes; a tighter deadline here would abandon
+ * jobs that were going to finish.
+ */
+const DEADLINE_MS = 900_000;
+
 function humanSize(bytes: number): string {
   return `${Math.round(bytes / (1024 * 1024))} MB`;
+}
+
+/** "41ms" under a second, "18.4s" above it. "0.0s" tells the reader nothing. */
+function duration(ms: number): string {
+  return ms < 1000 ? `${Math.round(ms)}ms` : `${(ms / 1000).toFixed(1)}s`;
 }
 
 export default function IngestPanel({ onIngested }: { onIngested?: () => void }) {
@@ -33,8 +53,14 @@ export default function IngestPanel({ onIngested }: { onIngested?: () => void })
   const [dragging, setDragging] = useState(false);
 
   const [busy, setBusy] = useState(false);
+  const [working, setWorking] = useState("");
+  const [steps, setSteps] = useState<IngestStep[]>([]);
   const [report, setReport] = useState<IngestReport | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  // Identifies the current upload, so a poll loop from a superseded or
+  // unmounted panel cannot write its result over a newer one.
+  const activeRun = useRef<symbol | null>(null);
 
   // Asked once: the panel needs to know the accepted extensions and whether a
   // model is configured before it offers the control, not after a failed upload.
@@ -53,6 +79,14 @@ export default function IngestPanel({ onIngested }: { onIngested?: () => void })
     };
   }, []);
 
+  // Abandon any in-flight poll loop when the panel goes away.
+  useEffect(
+    () => () => {
+      activeRun.current = null;
+    },
+    [],
+  );
+
   const accepted = caps?.supported_extensions.join(",") ?? "";
   const tooBig = Boolean(caps && file && file.size > caps.max_upload_bytes);
   const ready =
@@ -65,9 +99,15 @@ export default function IngestPanel({ onIngested }: { onIngested?: () => void })
 
   async function submit() {
     if (!ready || busy) return;
+
+    const token = Symbol("ingest");
+    activeRun.current = token;
+
     setBusy(true);
     setError(null);
     setReport(null);
+    setSteps([]);
+    setWorking("");
 
     const options = {
       title: title.trim(),
@@ -75,23 +115,53 @@ export default function IngestPanel({ onIngested }: { onIngested?: () => void })
     };
 
     try {
-      const result =
+      const queued =
         mode === "file" && file
-          ? await api.ingestFile(file, options)
-          : await api.ingestText(text, options);
-      setReport(result);
+          ? await api.startIngestFile(file, options)
+          : await api.startIngestText(text, options);
+
+      if (activeRun.current !== token) return;
+
+      // The document is stored by now, so the fields have done their job.
+      // Re-submitting the same content would just queue a second copy.
+      setWorking(queued.title);
       setText("");
       setFile(null);
       setTitle("");
-      onIngested?.();
+
+      for (let waited = 0; waited < DEADLINE_MS; waited += POLL_MS) {
+        if (activeRun.current !== token) return;
+
+        await new Promise((resolve) => setTimeout(resolve, POLL_MS));
+
+        const status = await api.ingestStatus(queued.job_id);
+        setSteps(status.steps);
+
+        if (!status.done) continue;
+
+        if (status.status !== "completed" || !status.result) {
+          setError(status.error ?? "The document could not be ingested.");
+          return;
+        }
+
+        setReport(status.result);
+        onIngested?.();
+        return;
+      }
+
+      setError("The upload is taking longer than expected. Check the backend logs.");
     } catch (err) {
+      if (activeRun.current !== token) return;
       setError(
         err instanceof ApiRequestError
           ? err.message
           : "The document could not be ingested.",
       );
     } finally {
-      setBusy(false);
+      if (activeRun.current === token) {
+        activeRun.current = null;
+        setBusy(false);
+      }
     }
   }
 
@@ -111,7 +181,7 @@ export default function IngestPanel({ onIngested }: { onIngested?: () => void })
                 setError(null);
               }}
               className={[
-                "font-ui text-[0.78rem] capitalize transition",
+                "font-ui text-[0.78rem] transition",
                 mode === m
                   ? "text-ink underline decoration-solid underline-offset-4"
                   : "text-ink-faint hover:text-ink-soft",
@@ -223,7 +293,7 @@ export default function IngestPanel({ onIngested }: { onIngested?: () => void })
               disabled={!ready || busy}
               className="mt-auto border border-ink bg-ink px-4 py-2 font-ui text-sm text-page transition disabled:cursor-not-allowed disabled:border-rule disabled:bg-transparent disabled:text-ink-faint"
             >
-              {busy ? "Converting and reading…" : "Add to the graph"}
+              {busy ? "Working…" : "Add to the graph"}
             </button>
           </div>
         </div>
@@ -234,12 +304,7 @@ export default function IngestPanel({ onIngested }: { onIngested?: () => void })
           </p>
         )}
 
-        {busy && (
-          <p className="mt-4 font-prose text-sm leading-relaxed text-ink-soft">
-            Converted locally first, then read for entities. A long document can
-            take a minute.
-          </p>
-        )}
+        {busy && <Progress title={working} steps={steps} />}
 
         {error && (
           <div className="mt-4 border-l-2 border-signal bg-signal-wash px-4 py-3 font-ui text-sm text-signal">
@@ -247,14 +312,72 @@ export default function IngestPanel({ onIngested }: { onIngested?: () => void })
           </div>
         )}
 
-        {report && <Report report={report} />}
+        {report && <Report report={report} steps={steps} />}
       </div>
     </section>
   );
 }
 
+/**
+ * What the upload is doing, as it does it.
+ *
+ * The wait is real - extraction is a model call - so the honest thing is to show
+ * which phase is running rather than a spinner that says nothing. A failed
+ * conversion never reaches the read step, and the missing line is the diagnosis.
+ */
+function Progress({ title, steps }: { title: string; steps: IngestStep[] }) {
+  return (
+    <div className="mt-5 border-t border-rule pt-4" aria-live="polite">
+      <p className="font-ui text-[0.8rem] text-ink">
+        {title ? (
+          <>
+            Reading <span className="italic">{title}</span>
+          </>
+        ) : (
+          "Storing the document…"
+        )}
+      </p>
+
+      <ol className="mt-3 flex flex-col gap-2">
+        {steps.map((step) => (
+          <li key={step.phase} className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+            <span className="w-16 shrink-0 font-mono text-[0.66rem] uppercase tracking-wide text-ink-faint">
+              {step.phase}
+            </span>
+            <span className="font-ui text-[0.82rem] text-ink">{step.title}</span>
+            {step.detail && (
+              <span className="font-prose text-[0.8rem] text-ink-soft">
+                {step.detail}
+              </span>
+            )}
+            <span className="font-mono text-[0.66rem] text-ink-faint">
+              {duration(step.duration_ms)}
+            </span>
+          </li>
+        ))}
+        <li className="flex items-baseline gap-3">
+          <span className="w-16 shrink-0 font-mono text-[0.66rem] uppercase tracking-wide text-ink-faint">
+            {steps.length === 0 ? "queued" : "reading"}
+          </span>
+          <span className="font-ui text-[0.82rem] text-ink-faint">
+            {steps.length === 0
+              ? "Converting to Markdown…"
+              : "Still working — a model call is not instant."}
+          </span>
+        </li>
+      </ol>
+
+      <p className="mt-3 max-w-[62ch] font-prose text-[0.8rem] leading-relaxed text-ink-faint">
+        Conversion happens locally; reading the document is a model call, which is
+        the slow part. Each phase above is reported as it finishes, so a long wait
+        still shows progress.
+      </p>
+    </div>
+  );
+}
+
 /** What the upload did, told in the order that matters: learned, then linked. */
-function Report({ report }: { report: IngestReport }) {
+function Report({ report, steps }: { report: IngestReport; steps: IngestStep[] }) {
   const learned = report.entities_created.length;
   const linked = report.entities_linked.length;
 
@@ -271,6 +394,14 @@ function Report({ report }: { report: IngestReport }) {
           {report.truncated ? " (trimmed for reading)" : ""}
         </span>
       </div>
+
+      {steps.length > 0 && (
+        <p className="mt-2 font-mono text-[0.68rem] text-ink-faint">
+          {steps
+            .map((step) => `${step.phase} ${duration(step.duration_ms)}`)
+            .join(" · ")}
+        </p>
+      )}
 
       {!report.model_used && (
         <p className="mt-3 border-l-2 border-link bg-link-soft px-3 py-2 font-ui text-[0.8rem] leading-relaxed text-ink-soft">
