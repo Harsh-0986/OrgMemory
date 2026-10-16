@@ -30,6 +30,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from app.models.graph import EntityType, RelationType
+from app.models.ingest import RejectedItem
 
 logger = logging.getLogger(__name__)
 
@@ -117,13 +118,6 @@ class ExtractedRelationship(BaseModel):
     from_id: str
     type: RelationType
     to_id: str
-
-
-class RejectedItem(BaseModel):
-    """Something the model proposed that we refused to write, and why."""
-
-    item: str
-    reason: str
 
 
 class ExtractionOutcome(BaseModel):

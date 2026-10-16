@@ -429,3 +429,58 @@ def row_to_dict(row: Any) -> dict[str, Any]:
     if hasattr(row, "properties"):  # a bare node was returned
         return dict(row.properties)
     return {"value": row}
+
+
+# --------------------------------------------------------------------------
+# Ingestion - the only place the app writes entities other than investigations
+# --------------------------------------------------------------------------
+
+#: MERGE on id, so re-uploading the same document updates it rather than
+#: creating a second copy. The id is derived from the document, not random.
+UPSERT_DOCUMENT = """
+MERGE (d:Document {id: $props.id})
+SET d += $props
+RETURN d.id AS id
+"""
+
+#: One label at a time: Cypher cannot bind a node label from a parameter, so
+#: the caller interpolates a label already checked against `EntityType`.
+#: See `GraphRepository.upsert_entities`.
+UPSERT_ENTITIES_BY_LABEL = """
+UNWIND $rows AS row
+MERGE (n:{label} {{id: row.id}})
+SET n += row.props
+RETURN count(*) AS written
+"""
+
+#: Same constraint for relationship types; `{rel_type}` is checked against
+#: `RelationType` first. Endpoints are matched by id alone, because an uploaded
+#: document may legitimately connect two entities of different labels.
+UPSERT_RELATIONSHIPS_BY_TYPE = """
+UNWIND $rows AS row
+MATCH (a) WHERE a.id = row.from_id
+MATCH (b) WHERE b.id = row.to_id
+MERGE (a)-[r:{rel_type}]->(b)
+RETURN count(*) AS written
+"""
+
+#: Provenance for uploaded documents. Written for every entity the document
+#: contributed, independently of what the model proposed, so a document is
+#: always reachable from the things it mentions even if the extractor was terse.
+#: `DESCRIBES` is the same relationship the seeded documents already use.
+LINK_DOCUMENT_ENTITIES = """
+MATCH (d:Document {id: $document_id})
+UNWIND $entity_ids AS entity_id
+MATCH (e) WHERE e.id = entity_id
+MERGE (d)-[:DESCRIBES]->(e)
+RETURN count(*) AS linked
+"""
+
+#: id -> name for every knowledge entity, used to tell the extractor which ids
+#: already exist so it reuses them instead of minting duplicates.
+ENTITY_CATALOGUE = """
+MATCH (n)
+WHERE n.id IS NOT NULL AND NOT n:Investigation
+RETURN n.id AS id, coalesce(n.name, n.title, n.id) AS name
+ORDER BY id
+"""

@@ -22,21 +22,25 @@ from app.ingest.extract import (
     ExtractedEntity,
     ExtractedRelationship,
     ExtractionOutcome,
-    RejectedItem,
     extract_graph,
     slugify,
     validate_extraction,
 )
+from app.ingest.service import SOURCE_TYPES, document_id_for, ingest_document
+from app.models.ingest import RejectedItem
 
 __all__ = [
     "MAX_UPLOAD_BYTES",
+    "SOURCE_TYPES",
     "SUPPORTED_EXTENSIONS",
     "ExtractedEntity",
     "ExtractedRelationship",
     "ExtractionOutcome",
     "RejectedItem",
     "UnsupportedDocument",
+    "document_id_for",
     "extract_graph",
+    "ingest_document",
     "is_supported",
     "slugify",
     "to_markdown",

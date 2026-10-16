@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+from collections import defaultdict
 from typing import Any
 
 from app.config import get_settings
@@ -29,6 +30,14 @@ from app.models.graph import (
 logger = logging.getLogger(__name__)
 
 _WORD_RE = re.compile(r"[a-z0-9]+")
+
+#: The only node labels and relationship types ingestion will interpolate into
+#: Cypher. Cypher cannot parameterise either, so these sets are the interlock
+#: that keeps a model-proposed name out of a query string.
+_ENTITY_LABELS: frozenset[str] = frozenset(
+    label.value for label in EntityType if label is not EntityType.INVESTIGATION
+)
+_RELATION_TYPES: frozenset[str] = frozenset(rel.value for rel in RelationType)
 
 #: Words too common to carry signal when ranking past investigations. Without
 #: these, "what is the timezone for the team" would match a stored question
@@ -652,3 +661,89 @@ class GraphRepository:
         """Delete all investigation memory. Dev/test utility only."""
         rows = _rows(queries.CLEAR_INVESTIGATIONS, {})
         return int(rows[0]["deleted"]) if rows else 0
+
+    # ----------------------------------------------------------------------
+    # Ingestion
+    # ----------------------------------------------------------------------
+
+    def entity_catalogue(self) -> dict[str, str]:
+        """Every knowledge entity as id -> display name.
+
+        Handed to the extractor so it reuses existing ids instead of inventing a
+        second id for a service that already exists.
+        """
+        return {
+            str(row["id"]): str(row.get("name") or row["id"])
+            for row in _rows(queries.ENTITY_CATALOGUE, {})
+            if row.get("id")
+        }
+
+    def upsert_document(self, document: dict[str, Any]) -> str:
+        """Create or replace one Document node, keyed by its derived id."""
+        _rows(queries.UPSERT_DOCUMENT, {"props": document})
+        return str(document["id"])
+
+    def upsert_entities(self, entities: list[dict[str, Any]]) -> int:
+        """Write entities, grouped by label.
+
+        Grouping is not an optimisation: Cypher cannot parameterise a node
+        label, so one query per label is the only way to bind it. Every label is
+        checked against `EntityType` before interpolation, which is what stops a
+        model-proposed label from becoming a node.
+        """
+        grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
+        for entity in entities:
+            label = str(entity.get("type", ""))
+            if label not in _ENTITY_LABELS:
+                raise ValueError(
+                    f"Refusing to write unknown entity label {label!r}; "
+                    f"allowed: {sorted(_ENTITY_LABELS)}"
+                )
+            grouped[label].append(
+                {
+                    "id": entity["id"],
+                    "props": {"id": entity["id"], **entity.get("properties", {})},
+                }
+            )
+
+        written = 0
+        for label, rows in grouped.items():
+            _rows(
+                queries.UPSERT_ENTITIES_BY_LABEL.format(label=label),
+                {"rows": rows},
+            )
+            written += len(rows)
+        return written
+
+    def upsert_relationships(self, relationships: list[dict[str, str]]) -> int:
+        """Write relationships, grouped by type, endpoints matched by id."""
+        grouped: dict[str, list[dict[str, str]]] = defaultdict(list)
+        for rel in relationships:
+            rel_type = rel["type"]
+            if rel_type not in _RELATION_TYPES:
+                raise ValueError(
+                    f"Refusing to write unknown relationship type {rel_type!r}; "
+                    f"allowed: {sorted(_RELATION_TYPES)}"
+                )
+            grouped[rel_type].append(
+                {"from_id": rel["from_id"], "to_id": rel["to_id"]}
+            )
+
+        written = 0
+        for rel_type, rows in grouped.items():
+            _rows(
+                queries.UPSERT_RELATIONSHIPS_BY_TYPE.format(rel_type=rel_type),
+                {"rows": rows},
+            )
+            written += len(rows)
+        return written
+
+    def link_document_to_entities(self, document_id: str, entity_ids: list[str]) -> int:
+        """Give an uploaded document provenance edges to what it mentions."""
+        if not entity_ids:
+            return 0
+        rows = _rows(
+            queries.LINK_DOCUMENT_ENTITIES,
+            {"document_id": document_id, "entity_ids": list(dict.fromkeys(entity_ids))},
+        )
+        return int(rows[0]["linked"]) if rows else 0

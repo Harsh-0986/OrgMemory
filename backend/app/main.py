@@ -11,7 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app import __version__
 from app.api.errors import register_exception_handlers
-from app.api.routes import graph, health, investigations
+from app.api.routes import graph, health, ingest, investigations
 from app.config import get_settings
 
 logger = logging.getLogger(__name__)
@@ -83,6 +83,7 @@ def create_app() -> FastAPI:
     app.include_router(health.router)
     app.include_router(graph.router)
     app.include_router(investigations.router)
+    app.include_router(ingest.router)
 
     @app.get("/", include_in_schema=False)
     def root() -> dict[str, str]:

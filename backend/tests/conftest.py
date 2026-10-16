@@ -86,6 +86,12 @@ class FakeGraphRepository:
         self.investigations: dict[str, dict[str, Any]] = {}
         self.cited_links: dict[str, list[str]] = defaultdict(list)
 
+        # Ingestion. `extras` holds entities an upload created whose label has
+        # no dedicated table above; the typed tables are still used when they
+        # exist, so an ingested Service behaves like a seeded one everywhere.
+        self.extras: dict[str, dict[str, Any]] = {}
+        self.ingested_links: dict[str, list[str]] = defaultdict(list)
+
     # -- Entity resolution -------------------------------------------------
     def all_services(self) -> list[dict[str, Any]]:
         return list(self.services.values())
@@ -120,6 +126,8 @@ class FakeGraphRepository:
                 "label": "Investigation",
                 "properties": self.investigations[entity_id],
             }
+        if entity_id in self.extras:
+            return {"id": entity_id, **self.extras[entity_id]}
         return None
 
     # -- Dependency analysis ------------------------------------------------
@@ -416,6 +424,77 @@ class FakeGraphRepository:
         self.cited_links.clear()
         return count
 
+    # -- Ingestion ----------------------------------------------------------
+    def entity_catalogue(self) -> dict[str, str]:
+        catalogue: dict[str, str] = {}
+        for table in (
+            self.services,
+            self.people,
+            self.incidents,
+            self.decisions,
+            self.documents,
+            self.projects,
+        ):
+            for entity_id, props in table.items():
+                catalogue[entity_id] = props.get("name") or props.get("title") or entity_id
+        for entity_id, entry in self.extras.items():
+            props = entry["properties"]
+            catalogue[entity_id] = props.get("name") or props.get("title") or entity_id
+        return catalogue
+
+    def upsert_document(self, document: dict[str, Any]) -> str:
+        self.documents[document["id"]] = dict(document)
+        return str(document["id"])
+
+    def upsert_entities(self, entities: list[dict[str, Any]]) -> int:
+        """Mirror the real interlock: an unknown label is refused here too.
+
+        The label/relationship-type slots are interpolated into Cypher, so this
+        check is what makes that safe rather than merely tidy.
+        """
+        from app.graph.repository import _ENTITY_LABELS
+
+        tables = {
+            "Service": self.services,
+            "Person": self.people,
+            "Incident": self.incidents,
+            "Decision": self.decisions,
+            "Document": self.documents,
+            "Project": self.projects,
+        }
+        for entity in entities:
+            label = str(entity.get("type", ""))
+            if label not in _ENTITY_LABELS:
+                raise ValueError(
+                    f"Refusing to write unknown entity label {label!r}; "
+                    f"allowed: {sorted(_ENTITY_LABELS)}"
+                )
+            props = {"id": entity["id"], **entity.get("properties", {})}
+            if label in tables:
+                tables[label][entity["id"]] = props
+            self.extras[entity["id"]] = {"label": label, "properties": props}
+        return len(entities)
+
+    def upsert_relationships(self, relationships: list[dict[str, str]]) -> int:
+        from app.graph.repository import _RELATION_TYPES
+
+        for rel in relationships:
+            rel_type = rel["type"]
+            if rel_type not in _RELATION_TYPES:
+                raise ValueError(
+                    f"Refusing to write unknown relationship type {rel_type!r}; "
+                    f"allowed: {sorted(_RELATION_TYPES)}"
+                )
+        return len(relationships)
+
+    def link_document_to_entities(self, document_id: str, entity_ids: list[str]) -> int:
+        linked = [e for e in dict.fromkeys(entity_ids) if self.get_entity(e)]
+        self.ingested_links[document_id] = linked
+        return len(linked)
+
+    def links_for(self, document_id: str) -> list[str]:
+        return sorted(self.ingested_links.get(document_id, []))
+
     def overview(self) -> dict[str, Any]:
         from collections import Counter
 
@@ -484,6 +563,27 @@ def _no_llm_calls_in_tests():
 def fake_repo() -> FakeGraphRepository:
     """A fresh in-memory repository for each test."""
     return FakeGraphRepository()
+
+
+@pytest.fixture
+def client(fake_repo, monkeypatch):
+    """A TestClient whose repository is the in-memory one.
+
+    Shared rather than defined per test module, because more than one module
+    exercises the HTTP surface.
+    """
+    from fastapi.testclient import TestClient
+
+    from app.api import deps
+    from app.main import create_app
+
+    app = create_app()
+    app.dependency_overrides[deps.get_repository] = lambda: fake_repo
+    # Keep /health from probing a real FalkorDB instance.
+    monkeypatch.setattr("app.api.routes.health.graph_client.ping", lambda: True)
+    with TestClient(app) as test_client:
+        yield test_client
+    app.dependency_overrides.clear()
 
 
 @pytest.fixture

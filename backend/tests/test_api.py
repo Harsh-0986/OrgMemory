@@ -18,18 +18,6 @@ DEMO_QUESTION = (
 )
 
 
-@pytest.fixture
-def client(fake_repo, monkeypatch):
-    """A TestClient whose repository is the in-memory one."""
-    app = create_app()
-    app.dependency_overrides[deps.get_repository] = lambda: fake_repo
-    # Keep /health from probing a real FalkorDB instance.
-    monkeypatch.setattr("app.api.routes.health.graph_client.ping", lambda: True)
-    with TestClient(app) as test_client:
-        yield test_client
-    app.dependency_overrides.clear()
-
-
 # --------------------------------------------------------------------------
 # Health
 # --------------------------------------------------------------------------

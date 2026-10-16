@@ -90,12 +90,17 @@ def test_query_templates_only_interpolate_a_validated_depth():
 
     FalkorDB rejects a parameter inside a variable-length relationship range, so
     the hop bound has to be formatted into the string. The only permitted
-    placeholder is that depth slot (plus two module-constant projections);
-    everything else must travel through `params`.
+    placeholders are that depth slot, two module-constant projections, and the
+    node label / relationship type - which Cypher also cannot parameterise.
+
+    Those last two are the dangerous ones, because unlike a depth integer they
+    are strings. They are only ever filled from a validated allowlist; see
+    `test_ingestion_refuses_a_label_that_is_not_in_the_schema`, which is what
+    makes this allowlist safe rather than merely documented.
     """
     import re
 
-    allowed = {"max_depth", "nodes", "rels"}
+    allowed = {"max_depth", "nodes", "rels", "label", "rel_type"}
 
     for name, value in vars(queries).items():
         if not name.isupper() or not isinstance(value, str):
