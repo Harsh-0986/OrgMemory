@@ -287,6 +287,12 @@ export interface IngestReport {
   source_type: string;
   /** False when no model was configured, so extraction cannot have run. */
   model_used: boolean;
+  /**
+   * Why extraction did not happen, when a call was attempted and failed.
+   * Empty when no model is configured — a setting, not an error — so the two
+   * must not be presented the same way.
+   */
+  model_error: string | null;
   summary: string;
   entities_created: IngestedEntity[];
   entities_linked: IngestedEntity[];

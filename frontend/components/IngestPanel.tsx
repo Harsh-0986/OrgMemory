@@ -403,18 +403,35 @@ function Report({ report, steps }: { report: IngestReport; steps: IngestStep[] }
         </p>
       )}
 
-      {!report.model_used && (
-        <p className="mt-3 border-l-2 border-link bg-link-soft px-3 py-2 font-ui text-[0.8rem] leading-relaxed text-ink-soft">
-          No model was available, so nothing was extracted. The document is stored
-          and can be cited by an investigation.
+      {report.model_error ? (
+        <p className="mt-3 border-l-2 border-signal bg-signal-wash px-3 py-2 font-ui text-[0.8rem] leading-relaxed text-signal">
+          <span className="font-semibold">The model call failed, so nothing was extracted.</span>{" "}
+          <span className="font-mono text-[0.9em]">{report.model_error}</span>
+          <span className="mt-1 block text-ink-soft">
+            The document is stored and can be cited by an investigation. Worth
+            checking whether the configured model is fast enough to answer within
+            the request timeout — a large model can time out rather than fail
+            outright.
+          </span>
         </p>
+      ) : (
+        !report.model_used && (
+          <p className="mt-3 border-l-2 border-link bg-link-soft px-3 py-2 font-ui text-[0.8rem] leading-relaxed text-ink-soft">
+            No model was available, so nothing was extracted. The document is stored
+            and can be cited by an investigation.
+          </p>
+        )
       )}
 
       <div className="mt-4 grid gap-6 md:grid-cols-2">
         <Group
           heading={`New to the graph · ${learned}`}
           count={learned}
-          empty="Nothing new — everything it mentioned was already known."
+          empty={
+            report.model_used
+              ? "Nothing new — everything it mentioned was already known."
+              : "Nothing was read, so there is nothing to add."
+          }
         >
           {report.entities_created.map((entity) => (
             <Chip key={entity.id} id={entity.id} name={entity.name} type={entity.type} />
