@@ -134,6 +134,7 @@ def _invoke(system: str, user: str, timeout: float) -> str:
 def plan_node(state: InvestigationState) -> dict[str, Any]:
     """Classify the question and resolve any services it names."""
     started = time.perf_counter()
+    _phase(state, "plan", "Understanding the question")
     question = state["question"]
     toolbox: GraphToolbox = state["_toolbox"]  # type: ignore[index]
     repo = toolbox.repository
@@ -303,10 +304,49 @@ def _merge_plan(
 # --------------------------------------------------------------------------
 
 
+def _report(state: InvestigationState, step: ExecutionStep) -> None:
+    """Publish a step to whoever is watching (an async job, or nothing).
+
+    Progress is emitted as the workflow runs rather than collected at the end,
+    so an async caller can show where the agent has got to. Failures here are
+    swallowed: progress reporting must never affect the investigation.
+    """
+    reporter = state.get("_progress")
+    if reporter is None:
+        return
+    try:
+        reporter(step)
+    except Exception:  # noqa: BLE001 - progress is best-effort
+        logger.debug("Progress reporter failed", exc_info=True)
+
+
+def _phase(
+    state: InvestigationState,
+    node: str,
+    title: str,
+    detail: str = "",
+) -> None:
+    """Announce that a workflow phase has begun.
+
+    Only reported, never stored: this is a transient "what is happening right
+    now" signal for a polling client. The durable trace is the ExecutionStep
+    each node appends to `steps`, so adding these to state would double-count.
+
+    The phases that matter most are the ones wrapped around a model call - they
+    are the slowest part of a run, and without this the dashboard would sit
+    frozen on the last tool call while the writer thinks.
+    """
+    _report(
+        state,
+        ExecutionStep(node=node, title=title, status="running", detail=detail),
+    )
+
+
 def _safe_tool(
     toolbox: GraphToolbox,
     evidence: list[Evidence],
     steps: list[ExecutionStep],
+    state: InvestigationState | None,
     tool_name: str,
     **kwargs: Any,
 ) -> Any:
@@ -319,42 +359,46 @@ def _safe_tool(
     try:
         result = method(**kwargs)
     except BudgetExhausted as exc:
-        steps.append(
-            ExecutionStep(
-                node="retrieve",
-                title=f"{tool_name} (budget exhausted)",
-                status="skipped",
-                detail=str(exc),
-                tool=tool_name,
-            )
+        step = ExecutionStep(
+            node="retrieve",
+            title=f"{tool_name} (budget exhausted)",
+            status="skipped",
+            detail=str(exc),
+            tool=tool_name,
         )
+        steps.append(step)
+        if state is not None:
+            _report(state, step)
         return None
     except (ToolValidationError, Exception) as exc:  # noqa: BLE001 - surfaced as a step
         logger.warning("Tool %s failed: %s", tool_name, exc)
-        steps.append(
-            ExecutionStep(
-                node="retrieve",
-                title=f"{tool_name} (failed)",
-                status="failed",
-                detail=str(exc),
-                tool=tool_name,
-            )
+        step = ExecutionStep(
+            node="retrieve",
+            title=f"{tool_name} (failed)",
+            status="failed",
+            detail=str(exc),
+            tool=tool_name,
         )
+        steps.append(step)
+        if state is not None:
+            _report(state, step)
         return None
 
     evidence.append(result.evidence)
-    steps.append(
-        ExecutionStep(
-            **result.step,
-            evidence_count=len(result.evidence.entities),
-            graph_paths=len(result.evidence.paths),
-        )
+    step = ExecutionStep(
+        **result.step,
+        evidence_count=len(result.evidence.entities),
+        graph_paths=len(result.evidence.paths),
     )
+    steps.append(step)
+    if state is not None:
+        _report(state, step)
     return result
 
 
 def retrieve_node(state: InvestigationState) -> dict[str, Any]:
     """Run the allowlisted query set implied by the plan."""
+    _phase(state, "retrieve", "Querying the knowledge graph")
     toolbox: GraphToolbox = state["_toolbox"]  # type: ignore[index]
     plan = InvestigationPlan(**state["plan"])  # type: ignore[arg-type]
     subject = state.get("resolved_subject")
@@ -367,7 +411,7 @@ def retrieve_node(state: InvestigationState) -> dict[str, Any]:
 
     # -- Always try to recall earlier investigations ------------------------
     recall = _safe_tool(
-        toolbox, evidence, steps, "recall_investigations", question=state["question"]
+        toolbox, evidence, steps, state, "recall_investigations", question=state["question"]
     )
     updates["recalled"] = (recall.data if recall else []) or []
 
@@ -402,7 +446,7 @@ def retrieve_node(state: InvestigationState) -> dict[str, Any]:
     impacted_paths: list[Any] = []
     if wants_impact:
         impact = _safe_tool(
-            toolbox, evidence, steps, "dependency_impact", service_id=subject_id
+            toolbox, evidence, steps, state, "dependency_impact", service_id=subject_id
         )
         impacted = impact.data["impacted"] if impact else []
         impacted_paths = impact.data["paths"] if impact else []
@@ -413,29 +457,29 @@ def retrieve_node(state: InvestigationState) -> dict[str, Any]:
     scope_ids = [subject_id, *impacted_ids]
 
     upstream = _safe_tool(
-        toolbox, evidence, steps, "upstream_dependencies", service_id=subject_id
+        toolbox, evidence, steps, state, "upstream_dependencies", service_id=subject_id
     )
 
     # Owners of the subject plus every impacted service, in one query.
-    owners = _safe_tool(toolbox, evidence, steps, "owners_of", service_ids=scope_ids)
+    owners = _safe_tool(toolbox, evidence, steps, state, "owners_of", service_ids=scope_ids)
 
     engineers = (
         _safe_tool(
-            toolbox, evidence, steps, "relevant_engineers", service_ids=scope_ids
+            toolbox, evidence, steps, state, "relevant_engineers", service_ids=scope_ids
         )
         if wants_ownership
         else None
     )
     incidents = (
         _safe_tool(
-            toolbox, evidence, steps, "related_incidents", service_ids=scope_ids
+            toolbox, evidence, steps, state, "related_incidents", service_ids=scope_ids
         )
         if wants_incidents
         else None
     )
     decisions = (
         _safe_tool(
-            toolbox, evidence, steps, "decision_history", service_ids=scope_ids
+            toolbox, evidence, steps, state, "decision_history", service_ids=scope_ids
         )
         if wants_decisions
         else None
@@ -447,7 +491,7 @@ def retrieve_node(state: InvestigationState) -> dict[str, Any]:
         *[d["id"] for d in (decisions.data if decisions else [])],
     ]
     documents = _safe_tool(
-        toolbox, evidence, steps, "supporting_documents", entity_ids=doc_entity_ids
+        toolbox, evidence, steps, state, "supporting_documents", entity_ids=doc_entity_ids
     )
 
     # -- Comparison-specific evidence --------------------------------------
@@ -457,23 +501,24 @@ def retrieve_node(state: InvestigationState) -> dict[str, Any]:
             toolbox,
             evidence,
             steps,
+            state,
             "shared_dependencies",
             service_a=subject_id,
             service_b=comparison.id,
         )
         shared = (shared_result.data if shared_result else []) or []
         _safe_tool(
-            toolbox, evidence, steps, "upstream_dependencies", service_id=comparison.id
+            toolbox, evidence, steps, state, "upstream_dependencies", service_id=comparison.id
         )
         if wants_decisions:
             _safe_tool(
-                toolbox, evidence, steps, "decision_history", service_ids=[comparison.id]
+                toolbox, evidence, steps, state, "decision_history", service_ids=[comparison.id]
             )
         _safe_tool(
-            toolbox, evidence, steps, "supporting_documents", entity_ids=[comparison.id]
+            toolbox, evidence, steps, state, "supporting_documents", entity_ids=[comparison.id]
         )
         _safe_tool(
-            toolbox, evidence, steps, "owners_of", service_ids=[comparison.id]
+            toolbox, evidence, steps, state, "owners_of", service_ids=[comparison.id]
         )
 
     updates.update(
@@ -503,13 +548,62 @@ def retrieve_node(state: InvestigationState) -> dict[str, Any]:
 # --------------------------------------------------------------------------
 
 
+def _normalise_evidence(evidence: list[Evidence]) -> list[Evidence]:
+    """Make an evidence bundle safe to cite and to key a list by.
+
+    Both problems here only surface on comparison questions, where a tool runs
+    once per side:
+
+    * `entities` repeated a node whenever one person or service was reached by
+      more than one route, so a single owner could be listed three times and
+      the entity count overstated what was actually found. `source_ids` was
+      already de-duplicated, so `entities` was the odd one out.
+    * `evidence_id` was the tool's label rather than a unique id, so running
+      `upstream_dependencies` for both services produced two records both
+      called `ev-upstream`. Evidence is cited by id, which made that citation
+      ambiguous, and it collided as a list key in the UI.
+
+    The first record keeps its base label so the citations the recommendation
+    builder writes still resolve; later repeats are suffixed.
+    """
+    used: dict[str, int] = {}
+    normalised: list[Evidence] = []
+
+    for item in evidence:
+        seen: set[tuple[str, str]] = set()
+        entities: list[NodeRef] = []
+        for entity in item.entities:
+            key = (str(entity.type), entity.id)
+            if key in seen:
+                continue
+            seen.add(key)
+            entities.append(entity)
+
+        count = used.get(item.evidence_id, 0) + 1
+        used[item.evidence_id] = count
+
+        normalised.append(
+            item.model_copy(
+                update={
+                    "entities": entities,
+                    "evidence_id": item.evidence_id
+                    if count == 1
+                    else f"{item.evidence_id}#{count}",
+                }
+            )
+        )
+
+    return normalised
+
+
 def assemble_evidence_node(state: InvestigationState) -> dict[str, Any]:
     """Normalise retrieved results into a single ordered evidence bundle.
 
     The writer sees a stable, compact view of what was found, including the
     explicit absences - those drive the "the graph does not record..." lines.
     """
-    evidence: list[Evidence] = list(state.get("evidence") or [])
+    _phase(state, "assemble", "Assembling the evidence bundle")
+    evidence = _normalise_evidence(list(state.get("evidence") or []))
     gaps: list[str] = []
 
     if not state.get("impacted"):
@@ -697,6 +791,7 @@ def critic_node(state: InvestigationState) -> dict[str, Any]:
     correspond to a retrieved entity - and then asks the model to reason about
     semantics the regex cannot see.
     """
+    _phase(state, "critic", "Checking claims against the evidence")
     steps: list[ExecutionStep] = []
     known = _known_ids(state)
 
@@ -1024,6 +1119,7 @@ def _deterministic_answer(state: InvestigationState) -> str:
 
 def write_node(state: InvestigationState) -> dict[str, Any]:
     """Generate the final answer, then run the deterministic citation audit."""
+    _phase(state, "write", "Drafting the answer")
     steps: list[ExecutionStep] = []
     rendered = render_evidence(state)
     caveats = list(state.get("missing_evidence") or [])
@@ -1090,6 +1186,7 @@ def _render_paths(state: InvestigationState) -> str:
 
 def memory_node(state: InvestigationState) -> dict[str, Any]:
     """Persist the investigation and its citations into the graph."""
+    _phase(state, "memory", "Saving what was learned")
     steps: list[ExecutionStep] = []
     toolbox: GraphToolbox = state["_toolbox"]  # type: ignore[index]
 

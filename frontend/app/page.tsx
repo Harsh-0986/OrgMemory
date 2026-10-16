@@ -13,7 +13,14 @@
  * all focus the same entity, which is what makes a claim traceable in one click.
  */
 
-import { useCallback, useEffect, useMemo, useSyncExternalStore, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useSyncExternalStore,
+  useState,
+} from "react";
 import Link from "next/link";
 import AnswerPanel from "@/components/AnswerPanel";
 import EvidencePanel from "@/components/EvidencePanel";
@@ -25,6 +32,7 @@ import { ApiRequestError, api } from "@/lib/api";
 import { EXAMPLE_QUESTIONS } from "@/lib/examples";
 import type {
   Edge,
+  ExecutionStep,
   GraphOverview,
   InvestigationResponse,
   InvestigationSummary,
@@ -64,10 +72,24 @@ export default function Dashboard() {
   const [overview, setOverview] = useState<GraphOverview | null>(null);
   const [health, setHealth] = useState<{ graph_connected: boolean } | null>(null);
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
+  /** Steps reported by the running job, shown live while it works. */
+  const [liveSteps, setLiveSteps] = useState<ExecutionStep[]>([]);
+  /** Identifies the current run so a stale poll loop can abandon itself. */
+  const activeRun = useRef<symbol | null>(null);
+
   const theme = useSyncExternalStore(
     themeStore.subscribe,
     themeStore.getSnapshot,
     themeStore.getServerSnapshot,
+  );
+
+  useEffect(
+    () => () => {
+      // Abandon any in-flight poll loop when the page goes away, so a stale
+      // run cannot keep issuing requests or update state after unmount.
+      activeRun.current = null;
+    },
+    [],
   );
 
   const refreshHistory = useCallback(async () => {
@@ -112,6 +134,14 @@ export default function Dashboard() {
     window.dispatchEvent(new Event(THEME_EVENT));
   }, [theme]);
 
+  /**
+   * Start an investigation and poll it.
+   *
+   * The POST returns immediately with an id, so the page can show which stage
+   * the agent has reached instead of one opaque spinner for the whole run.
+   * Polling stops as soon as the job reports a terminal state, and the loop is
+   * abandoned if the component unmounts or a newer question supersedes it.
+   */
   const run = useCallback(
     async (text: string) => {
       const trimmed = text.trim();
@@ -119,24 +149,66 @@ export default function Dashboard() {
         setError("Ask a question of at least 8 characters.");
         return;
       }
+
+      const token = Symbol("investigation");
+      activeRun.current = token;
       setLoading(true);
       setError(null);
       setHighlightedId(null);
       setResult(null);
+      setLiveSteps([]);
 
       try {
-        const data = await api.investigate(trimmed);
-        setResult(data);
-        if (data.error) setError(data.error);
-        void refreshHistory();
+        const accepted = await api.startInvestigation(trimmed);
+
+        const POLL_MS = 1200;
+        // Deliberately generous. The backend gives each model call a 60s
+        // timeout with two retries, and a run makes up to three of them, so a
+        // slow-but-working investigation can legitimately take minutes. A
+        // tighter deadline here would abandon runs that were going to finish.
+        const DEADLINE_MS = 900_000;
+
+        for (let waited = 0; waited < DEADLINE_MS; waited += POLL_MS) {
+          if (activeRun.current !== token) return;
+
+          await new Promise((resolve) => setTimeout(resolve, POLL_MS));
+
+          const status = await api.investigationStatus(accepted.investigation_id);
+          setLiveSteps(status.steps);
+
+          if (!status.done) continue;
+
+          if (status.status !== "completed") {
+            setError(status.error ?? "The investigation failed.");
+            return;
+          }
+
+          const result = status.result as InvestigationResponse | null;
+          if (!result) {
+            setError("The investigation finished without returning an answer.");
+            return;
+          }
+          if (activeRun.current !== token) return;
+
+          setResult(result);
+          if (result.error) setError(result.error);
+          void refreshHistory();
+          return;
+        }
+
+        setError("The investigation timed out. Check the backend logs.");
       } catch (err) {
+        if (activeRun.current !== token) return;
         setError(
           err instanceof ApiRequestError
             ? err.message
             : "The investigation failed unexpectedly.",
         );
       } finally {
-        setLoading(false);
+        if (activeRun.current === token) {
+          setLoading(false);
+          setLiveSteps([]);
+        }
       }
     },
     [refreshHistory],
@@ -331,21 +403,33 @@ export default function Dashboard() {
         {loading && (
           <div className="mt-10 border-l-2 border-link pl-5">
             <p className="font-prose text-[0.95rem] text-ink-soft">
-              Traversing the knowledge graph…
+              {liveSteps.length > 0
+                ? `Investigating — ${liveSteps[liveSteps.length - 1]?.title?.toLowerCase() ?? "starting"}`
+                : "Starting the investigation…"}
             </p>
-            <ul className="mt-3 space-y-1.5">
-              {[
-                "Classifying the question",
-                "Resolving services",
-                "Walking dependencies",
-                "Checking claims against evidence",
-              ].map((label) => (
-                <li key={label} className="flex items-center gap-2.5 font-ui text-xs text-ink-faint">
-                  <span className="h-1 w-1 animate-pulse rounded-full bg-link" />
-                  {label}
-                </li>
-              ))}
-            </ul>
+
+            {liveSteps.length > 0 ? (
+              <div className="mt-4">
+                <StepsTimeline steps={liveSteps} />
+              </div>
+            ) : (
+              <ul className="mt-3 space-y-1.5">
+                {[
+                  "Classifying the question",
+                  "Resolving services",
+                  "Walking dependencies",
+                  "Checking claims against evidence",
+                ].map((label) => (
+                  <li
+                    key={label}
+                    className="flex items-center gap-2.5 font-ui text-xs text-ink-faint"
+                  >
+                    <span className="h-1 w-1 animate-pulse rounded-full bg-link" />
+                    {label}
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
         )}
 

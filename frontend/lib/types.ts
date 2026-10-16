@@ -182,6 +182,37 @@ export interface InvestigationResponse {
   error: string | null;
 }
 
+export interface InvestigationAccepted {
+  investigation_id: string;
+  question: string;
+  status: string;
+  poll_url: string;
+}
+
+export interface InvestigationDetailResponse {
+  id: string;
+  question: string;
+  answer: string;
+  summary: string;
+  status: string;
+  created_at: string | null;
+  cited_ids: string[];
+  cited_entities: NodeRef[];
+}
+
+export interface InvestigationStatus {
+  investigation_id: string;
+  question: string;
+  status: string;
+  created_at: string | null;
+  started_at: string | null;
+  finished_at: string | null;
+  steps: ExecutionStep[];
+  error: string | null;
+  done: boolean;
+  result: InvestigationResponse | InvestigationDetailResponse | null;
+}
+
 export interface InvestigationSummary {
   id: string;
   question: string;

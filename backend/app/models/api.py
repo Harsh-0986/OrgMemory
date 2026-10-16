@@ -122,6 +122,30 @@ class InvestigationRequest(BaseModel):
         return cleaned
 
 
+class InvestigationAccepted(BaseModel):
+    """Returned immediately when an investigation is started."""
+
+    investigation_id: str
+    question: str
+    status: str
+    poll_url: str
+
+
+class InvestigationStatus(BaseModel):
+    """Progress of an in-flight or finished job."""
+
+    investigation_id: str
+    question: str
+    status: str
+    created_at: str | None = None
+    started_at: str | None = None
+    finished_at: str | None = None
+    steps: list[dict[str, Any]] = Field(default_factory=list)
+    error: str | None = None
+    done: bool = False
+    result: dict[str, Any] | None = None
+
+
 class InvestigationResponse(BaseModel):
     """Full result of one investigation."""
 

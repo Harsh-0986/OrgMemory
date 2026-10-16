@@ -120,6 +120,7 @@ def run_investigation(
     question: str,
     repository: GraphRepository | None = None,
     investigation_id: str | None = None,
+    on_step: Any | None = None,
 ) -> InvestigationState:
     """Run one end-to-end investigation and return the final state.
 
@@ -134,6 +135,7 @@ def run_investigation(
     toolbox = GraphToolbox(repo, budget=settings.agent_max_tool_calls)
     state = new_state(question, investigation_id)
     state["_toolbox"] = toolbox
+    state["_progress"] = on_step
 
     try:
         result = get_graph_workflow().invoke(

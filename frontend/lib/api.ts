@@ -10,6 +10,8 @@
 import type {
   ApiError,
   EntityListResponse,
+  InvestigationAccepted,
+  InvestigationStatus,
   FullGraphResponse,
   GraphOverview,
   InvestigationHistory,
@@ -99,11 +101,24 @@ export const api = {
       `/api/graph/neighborhood?entity_id=${encodeURIComponent(entityId)}&depth=${depth}`,
     ),
 
-  investigate: (question: string) =>
-    request<InvestigationResponse>("/api/investigations", {
+  /** Starts an investigation and returns immediately (202). */
+  startInvestigation: (question: string) =>
+    request<InvestigationAccepted>("/api/investigations", {
       method: "POST",
       body: JSON.stringify({ question }),
     }),
+
+  /** Blocks until the investigation finishes. Used by scripts and tests. */
+  investigate: (question: string) =>
+    request<InvestigationResponse>("/api/investigations?wait=true", {
+      method: "POST",
+      body: JSON.stringify({ question }),
+    }),
+
+  investigationStatus: (id: string) =>
+    request<InvestigationStatus>(
+      `/api/investigations/${encodeURIComponent(id)}/status`,
+    ),
 
   history: (limit = 20) =>
     request<InvestigationHistory>(`/api/investigations/history?limit=${limit}`),

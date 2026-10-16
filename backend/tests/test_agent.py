@@ -11,10 +11,17 @@ from __future__ import annotations
 import pytest
 
 from app.agent.graph import run_investigation, summarise_state
-from app.agent.nodes import _extract_json, _merge_plan, match_services, snap_to_service
+from app.agent.nodes import (
+    _extract_json,
+    _merge_plan,
+    _normalise_evidence,
+    match_services,
+    snap_to_service,
+)
 from app.agent.state import Critique, new_state
 from app.agent.tools import BudgetExhausted, GraphToolbox, ToolValidationError
 from app.config import get_settings
+from app.models.graph import EntityType, Evidence, NodeRef
 from app.seed import data
 
 DEMO_QUESTION = (
@@ -476,3 +483,83 @@ class TestRecommendations:
 
         text = " ".join(rec.action for rec in summary["recommendations"]).lower()
         assert "shared dependency" in text
+
+class TestEvidenceNormalisation:
+    """A bundle has to be unique by id and free of repeated entities.
+
+    Both only break on comparison questions, where a tool runs once per side -
+    which is exactly the primary demo question, so these are not edge cases.
+    """
+
+    @staticmethod
+    def _evidence(evidence_id: str, entity_ids: list[str]) -> Evidence:
+        return Evidence(
+            evidence_id=evidence_id,
+            kind="upstream_dependencies",
+            summary=f"{evidence_id} summary",
+            tool="upstream_dependencies",
+            entities=[
+                NodeRef(id=eid, type=EntityType.SERVICE, name=eid.upper())
+                for eid in entity_ids
+            ],
+            source_ids=sorted(set(entity_ids)),
+        )
+
+    def test_repeated_entities_within_one_evidence_are_dropped(self):
+        bundle = _normalise_evidence(
+            [self._evidence("ev-owners", ["per-a", "per-b", "per-a", "per-a", "per-b"])]
+        )
+        assert [e.id for e in bundle[0].entities] == ["per-a", "per-b"]
+
+    def test_normalised_entities_agree_with_source_ids(self):
+        """`source_ids` was already de-duplicated; `entities` now matches it."""
+        bundle = _normalise_evidence(
+            [self._evidence("ev-owners", ["per-a", "per-a", "per-b"])]
+        )
+        assert len(bundle[0].entities) == len(bundle[0].source_ids)
+
+    def test_a_repeated_evidence_id_is_suffixed(self):
+        bundle = _normalise_evidence(
+            [
+                self._evidence("ev-upstream", ["svc-a"]),
+                self._evidence("ev-upstream", ["svc-b"]),
+            ]
+        )
+        assert [e.evidence_id for e in bundle] == ["ev-upstream", "ev-upstream#2"]
+
+    def test_the_first_record_keeps_its_base_id_so_citations_still_resolve(self):
+        """Recommendations cite `ev-impact`/`ev-owners` as literal strings."""
+        bundle = _normalise_evidence(
+            [
+                self._evidence("ev-impact", ["svc-a"]),
+                self._evidence("ev-impact", ["svc-b"]),
+                self._evidence("ev-owners", ["per-a"]),
+            ]
+        )
+        ids = [e.evidence_id for e in bundle]
+        assert "ev-impact" in ids, "a base id must survive so citations resolve"
+        assert "ev-owners" in ids
+        assert len(set(ids)) == len(ids), "ids must be unique"
+
+    def test_the_summary_and_caveats_are_left_alone(self):
+        """Only the two fields that were wrong are touched."""
+        original = self._evidence("ev-upstream", ["svc-a", "svc-a"])
+        bundle = _normalise_evidence([original])
+        assert bundle[0].summary == original.summary
+        assert bundle[0].caveats == original.caveats
+        assert bundle[0].kind == original.kind
+
+    def test_the_demo_question_produces_unique_evidence_ids(self, fake_repo):
+        """The end-to-end version: this failed before the fix."""
+        state = run_investigation(DEMO_QUESTION, repository=fake_repo)
+        ids = [e.evidence_id for e in state["evidence"]]
+        assert ids, "expected some evidence"
+        assert len(set(ids)) == len(ids), f"duplicate evidence ids: {ids}"
+
+    def test_the_demo_question_produces_no_repeated_entities(self, fake_repo):
+        state = run_investigation(DEMO_QUESTION, repository=fake_repo)
+        for item in state["evidence"]:
+            ids = [e.id for e in item.entities]
+            assert len(set(ids)) == len(ids), (
+                f"{item.evidence_id} repeats entities: {ids}"
+            )

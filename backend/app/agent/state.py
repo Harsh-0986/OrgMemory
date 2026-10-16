@@ -100,6 +100,10 @@ class InvestigationState(TypedDict, total=False):
     #: concurrent investigations each get their own tool-call budget.
     _toolbox: Any
 
+    #: Optional callback invoked with each ExecutionStep as it happens, so an
+    #: async caller can show progress instead of waiting for the whole run.
+    _progress: Any
+
 
 def new_state(question: str, investigation_id: str) -> InvestigationState:
     """Initial state for a fresh investigation."""
