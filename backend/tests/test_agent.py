@@ -15,6 +15,7 @@ from app.agent.nodes import (
     _extract_json,
     _merge_plan,
     _normalise_evidence,
+    invoke_with_reason,
     match_services,
     snap_to_service,
 )
@@ -38,6 +39,69 @@ def services() -> list[dict]:
 # --------------------------------------------------------------------------
 # Entity resolution
 # --------------------------------------------------------------------------
+
+
+class TestInvokeWithReason:
+    """A missing model and a failed call must not look alike.
+
+    `_invoke` returns "" for both, which is fine for a caller that only wants
+    text. Anything reporting *why* something was not extracted needs the
+    difference: with a slow model, every extraction failed and every failure was
+    reported as "no model available".
+    """
+
+    def test_no_model_is_not_a_failure(self, monkeypatch):
+        from app.agent import nodes
+        from app.llm import LLMUnavailable
+
+        def unavailable():
+            raise LLMUnavailable("no key configured")
+
+        monkeypatch.setattr(nodes, "get_llm", unavailable)
+
+        text, failure = invoke_with_reason("system", "user", 5)
+
+        assert text == ""
+        assert failure is None
+
+    def test_a_failed_call_reports_the_reason(self, monkeypatch):
+        from app.agent import nodes
+
+        class FailingModel:
+            def invoke(self, messages):  # noqa: ANN001, ANN202
+                raise TimeoutError("Request timed out after 60s")
+
+        monkeypatch.setattr(nodes, "get_llm", lambda: FailingModel())
+
+        text, failure = invoke_with_reason("system", "user", 5)
+
+        assert text == ""
+        assert failure is not None
+        assert "timed out" in failure
+
+    def test_a_broken_client_is_a_failure_not_a_missing_model(self, monkeypatch):
+        from app.agent import nodes
+
+        def broken():
+            raise ValueError("no such model: nvidia/does-not-exist")
+
+        monkeypatch.setattr(nodes, "get_llm", broken)
+
+        _text, failure = invoke_with_reason("system", "user", 5)
+
+        assert failure is not None
+        assert "does-not-exist" in failure
+
+    def test_an_answer_has_no_failure(self, monkeypatch):
+        from app.agent import nodes
+
+        class AnsweringModel:
+            def invoke(self, messages):  # noqa: ANN001, ANN202
+                return type("R", (), {"content": "hello"})()
+
+        monkeypatch.setattr(nodes, "get_llm", lambda: AnsweringModel())
+
+        assert invoke_with_reason("system", "user", 5) == ("hello", None)
 
 
 class TestEntityResolution:

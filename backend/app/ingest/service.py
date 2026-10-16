@@ -124,18 +124,21 @@ def ingest_document(
     known = repository.entity_catalogue()
     outcome = extract_graph(resolved_title, markdown, known, invoke=invoke)
     if outcome.model_used:
+        extract_title = "Read the document for entities"
         extract_detail = (
             f"{len(outcome.entities)} entities, {len(outcome.relationships)} relationships"
             + (f", {len(outcome.rejected)} refused" if outcome.rejected else "")
         )
+    elif outcome.model_error:
+        # The call was made and failed. Saying "no model available" here would be
+        # a lie that sends the reader to their configuration for the wrong
+        # problem, which is what a slow model used to look like.
+        extract_title = "The model call failed"
+        extract_detail = f"{outcome.model_error} — the document is still stored and citable"
     else:
+        extract_title = "No model available"
         extract_detail = "nothing extracted; the document is still stored and citable"
-    publish(
-        "extract",
-        "Read the document for entities" if outcome.model_used else "No model available",
-        extract_detail,
-        phase_started,
-    )
+    publish("extract", extract_title, extract_detail, phase_started)
 
     # -- 3. write ---------------------------------------------------------
     phase_started = time.perf_counter()
@@ -203,6 +206,7 @@ def ingest_document(
         source_type=source_type,
         model_used=outcome.model_used,
         summary=outcome.summary,
+        model_error=outcome.model_error,
         entities_created=[
             IngestedEntity(id=e.id, type=e.type.value, name=e.name) for e in new_entities
         ],

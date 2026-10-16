@@ -130,6 +130,11 @@ class ExtractionOutcome(BaseModel):
     #: False when the model was unavailable and nothing was extracted, so a
     #: caller can tell "the document had no entities" from "there was no model".
     model_used: bool = False
+    #: Why nothing was extracted, when a call was attempted and failed. Empty
+    #: when no model is configured - that is not a failure, it is a setting.
+    #: Without this, a timeout and a missing key read identically, and the
+    #: reader goes looking in their configuration for the wrong problem.
+    model_error: str | None = None
 
 
 def slugify(raw: str) -> str:
@@ -309,6 +314,24 @@ def validate_extraction(
     return outcome
 
 
+def _trim(text: str, limit: int = 300) -> str:
+    """A failure message short enough to show a user, without losing the cause."""
+    text = " ".join(text.split())
+    return text if len(text) <= limit else text[: limit - 1] + "…"
+
+
+def _call_model(system: str, user: str, timeout: float) -> tuple[str, str | None]:
+    """The real model call, isolated so its failure mode is testable.
+
+    `extract_graph`'s `invoke` seam scripts a *successful* answer, which is what
+    almost every test wants. This is the other half: the tuple-returning call
+    that can report why it came back empty.
+    """
+    from app.agent.nodes import invoke_with_reason
+
+    return invoke_with_reason(system, user, timeout)
+
+
 def extract_graph(
     title: str,
     markdown: str,
@@ -322,16 +345,26 @@ def extract_graph(
     returning the model's raw text. Passing one means no model is called at all,
     which is how the ingestion tests run without spending quota.
     """
-    from app.agent.nodes import _extract_json, _invoke
+    from app.agent.nodes import _extract_json
 
     known = known or {}
     system, user = build_prompt(title, markdown, known)
-    call = invoke if invoke is not None else _invoke
 
     from app.config import get_settings
 
-    raw = call(system, user, timeout=get_settings().agent_query_timeout_seconds)
+    timeout = get_settings().agent_query_timeout_seconds
+    if invoke is not None:
+        raw, failure = invoke(system, user, timeout), None
+    else:
+        raw, failure = _call_model(system, user, timeout)
+
     if not raw:
+        if failure:
+            # A call was made and it failed. Reporting this as "no model" would
+            # send the reader to their configuration for a problem that is not
+            # there, which is exactly what a slow model used to look like.
+            logger.warning("Extractor call failed: %s", failure)
+            return ExtractionOutcome(model_used=False, model_error=_trim(failure))
         # No model: an honest empty result, flagged as such.
         logger.info("Extractor had no model available; nothing extracted")
         return ExtractionOutcome(model_used=False)

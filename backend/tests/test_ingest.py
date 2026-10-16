@@ -328,6 +328,48 @@ class TestExtractionWiring:
         assert out.entities == []
         assert "not valid JSON" in out.rejected[0].reason
 
+    def test_no_model_and_a_failed_call_are_not_the_same_result(self):
+        """The distinction that was missing.
+
+        Both leave nothing extracted, but one is a setting and the other is a
+        fault. Collapsing them made a timed-out call read as "no model
+        available", which sends the reader to their configuration for a problem
+        that is not there - and with a slow model that was every single upload.
+        """
+        import app.ingest.extract as extract
+
+        no_model = extract.extract_graph("t", "c", {}, invoke=lambda *a, **k: "")
+        assert no_model.model_used is False
+        assert no_model.model_error is None
+
+        def failed(system, user, timeout):  # noqa: ANN001, ANN202
+            return "", "APITimeoutError: Request timed out."
+
+        original = extract._call_model
+        extract._call_model = failed
+        try:
+            failed_call = extract.extract_graph("t", "c", {})
+        finally:
+            extract._call_model = original
+
+        assert failed_call.model_used is False
+        assert failed_call.model_error is not None
+        assert "timed out" in failed_call.model_error
+
+    def test_a_failure_message_is_trimmed_for_display(self):
+        import app.ingest.extract as extract
+
+        long_reason = "APITimeoutError: " + ("x" * 900)
+        original = extract._call_model
+        extract._call_model = lambda *a, **k: ("", long_reason)
+        try:
+            out = extract.extract_graph("t", "c", {})
+        finally:
+            extract._call_model = original
+
+        assert out.model_error is not None
+        assert len(out.model_error) <= 300
+
 
 # --------------------------------------------------------------------------
 # End to end against the in-memory repository
@@ -465,6 +507,35 @@ class TestIngestDocument:
             invoke=lambda *a, **k: "",
         )
         assert report.model_used is False
+        assert report.document_id.startswith("doc-ingested-")
+        # No model is a setting, so there is no failure to report.
+        assert report.model_error is None
+
+    def test_a_failed_model_call_is_reported_not_dressed_up(self, fake_repo):
+        """The report must say the call failed, not that no model exists.
+
+        This is the shape of every upload with a slow model: the call is made,
+        it times out, nothing is extracted - and the user is told their
+        configuration is missing something when it is not.
+        """
+        import app.ingest.extract as extract
+
+        original = extract._call_model
+        extract._call_model = lambda *a, **k: ("", "APITimeoutError: Request timed out.")
+        try:
+            report = ingest_document(
+                repository=fake_repo,
+                text="Runbook content that mentions svc-ledger.",
+                title="slow model",
+            )
+        finally:
+            extract._call_model = original
+
+        assert report.model_used is False
+        assert report.model_error is not None
+        assert "timed out" in report.model_error
+        # The document is still stored and citable: a failed reader is not a
+        # failed ingest, and throwing the document away would be worse.
         assert report.document_id.startswith("doc-ingested-")
 
     def test_the_same_content_yields_the_same_id(self):
@@ -744,6 +815,28 @@ class TestIngestJobs:
         # The message is shown to the user verbatim, so it must be the reason
         # rather than a repr of the exception.
         assert "unreadable" in status["error"]
+
+    def test_the_read_step_says_so_when_the_call_fails(self, client, ingest_jobs_registry, monkeypatch):
+        """A failed call must not be shown to the user as "No model available"."""
+        import app.ingest.extract as extract
+
+        original = extract._call_model
+        extract._call_model = lambda *a, **k: ("", "APITimeoutError: Request timed out.")
+        try:
+            accepted = client.post(
+                "/api/ingest/text",
+                json={"title": "Note", "content": "Something about a service."},
+            ).json()
+            status = client.get(accepted["poll_url"]).json()
+        finally:
+            extract._call_model = original
+
+        extract_step = next(s for s in status["steps"] if s["phase"] == "extract")
+        assert extract_step["title"] == "The model call failed"
+        assert "timed out" in extract_step["detail"]
+        # The job itself still succeeded: the document is stored and citable.
+        assert status["status"] == "completed"
+        assert status["result"]["model_error"] is not None
 
     def test_an_unknown_job_is_a_404(self, client, ingest_jobs_registry):
         """A job lost to a restart must read as absent, not as running forever."""

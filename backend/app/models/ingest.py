@@ -40,6 +40,10 @@ class IngestReport(BaseModel):
     #: model are otherwise indistinguishable, and they mean different things.
     model_used: bool
     summary: str = ""
+    #: Why extraction did not happen, when a call was attempted and failed.
+    #: Empty when no model is configured: that is a setting, not an error, and
+    #: the two must not read the same in the UI.
+    model_error: str | None = None
     entities_created: list[IngestedEntity] = Field(default_factory=list)
     #: Entities the document referred to that were already in the graph.
     entities_linked: list[IngestedEntity] = Field(default_factory=list)

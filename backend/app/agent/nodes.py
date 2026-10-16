@@ -113,17 +113,55 @@ def _extract_json(text: str) -> dict[str, Any] | None:
         return None
 
 
-def _invoke(system: str, user: str, timeout: float) -> str:
-    """Call the chat model and return plain text. Never raises."""
+def invoke_with_reason(system: str, user: str, timeout: float) -> tuple[str, str | None]:
+    """Call the chat model. Returns `(text, failure)`.
+
+    Three outcomes, and they are genuinely different:
+
+    * `("<text>", None)` - the model answered.
+    * `("", None)` - no model is configured. Nothing was attempted, so there is
+      nothing to report; this is the honest "no model available".
+    * `("", "<reason>")` - a call was attempted and failed. A key that is out of
+      quota, an id the provider rejects, and a request that timed out all land
+      here.
+
+    The distinction exists because the extractor used to collapse the last two
+    into one. A failed call was reported as "No model was available", which sends
+    the reader to their configuration for a problem that is not there.
+
+    `timeout` is accepted for the caller's sake but is **not yet honoured** - see
+    the open item in SESSION_DUMP.md. The effective bound is the client's
+    (`agent_query_timeout_seconds * 4`, with two retries), so a dead provider
+    still costs minutes before this returns.
+    """
     try:
         llm = get_llm()
+    except LLMUnavailable as exc:
+        logger.info("No model configured: %s", exc)
+        return "", None
+    except Exception as exc:  # noqa: BLE001 - a broken provider is a failure too
+        logger.warning("Could not build the model client: %s", exc)
+        return "", f"{type(exc).__name__}: {exc}"
+
+    try:
         response = llm.invoke(
             [{"role": "system", "content": system}, {"role": "user", "content": user}]
         )
-        return str(getattr(response, "content", response) or "")
-    except (LLMUnavailable, Exception) as exc:  # noqa: BLE001 - fallback path
-        logger.warning("LLM call failed, falling back: %s", exc)
-        return ""
+        return str(getattr(response, "content", response) or ""), None
+    except Exception as exc:  # noqa: BLE001 - fallback path
+        logger.warning("LLM call failed: %s", exc)
+        return "", f"{type(exc).__name__}: {exc}"
+
+
+def _invoke(system: str, user: str, timeout: float) -> str:
+    """Call the chat model and return plain text. Never raises.
+
+    Kept for the callers that only want the text and already treat an empty
+    answer as "the model could not help". Anything that needs to tell a failed
+    call from a missing model should use `invoke_with_reason`.
+    """
+    text, _failure = invoke_with_reason(system, user, timeout)
+    return text
 
 
 # --------------------------------------------------------------------------
