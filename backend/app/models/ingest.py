@@ -70,3 +70,39 @@ class IngestCapabilities(BaseModel):
     #: Whether ingestion will actually use a model right now. The UI says so
     #: before the user uploads, rather than after.
     model_available: bool
+
+
+class IngestAccepted(BaseModel):
+    """Returned immediately (202) when an upload is queued."""
+
+    job_id: str
+    poll_url: str
+    title: str
+
+
+class IngestStep(BaseModel):
+    """One finished phase of an ingestion, published as it completes.
+
+    Ingestion is slow enough to need progress: conversion is local but extraction
+    is a model call. This is what stops the wait from being one opaque spinner.
+    """
+
+    phase: str
+    title: str
+    detail: str = ""
+    duration_ms: float = 0.0
+
+
+class IngestStatus(BaseModel):
+    """The state of one ingestion job."""
+
+    job_id: str
+    status: str
+    created_at: str
+    started_at: str | None = None
+    finished_at: str | None = None
+    steps: list[IngestStep] = Field(default_factory=list)
+    error: str | None = None
+    done: bool = False
+    #: The report, once the job has settled successfully.
+    result: IngestReport | None = None

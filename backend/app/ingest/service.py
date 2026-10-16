@@ -27,15 +27,21 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import time
+from collections.abc import Callable
 from typing import Any
 
 from app.graph.repository import GraphRepository
 from app.ingest.documents import to_markdown
 from app.ingest.extract import ExtractionOutcome, extract_graph
 from app.models.graph import utcnow
-from app.models.ingest import IngestedEntity, IngestReport
+from app.models.ingest import IngestedEntity, IngestReport, IngestStep
 
 logger = logging.getLogger(__name__)
+
+#: Called as each phase completes, so a slow ingestion can report progress
+#: instead of showing one spinner for the whole of it.
+Progress = Callable[[IngestStep], None]
 
 #: Matches the vocabulary the seeded documents use, so an uploaded ADR is the
 #: same kind of thing as the ADRs already in the graph.
@@ -65,16 +71,31 @@ def ingest_document(
     source_type: str = "upload",
     source_uri: str = "",
     invoke: Any | None = None,
+    on_progress: Progress | None = None,
 ) -> IngestReport:
     """Convert, extract and write one document.
 
     `text` bypasses conversion entirely, which is what the paste box uses.
     `invoke` is the test seam: supplying it means no model is called.
+    `on_progress` is called as each phase finishes, which is how a queued
+    ingestion reports progress while the model is thinking.
     """
     if source_type not in SOURCE_TYPES:
         source_type = "upload"
 
+    def publish(phase: str, title: str, detail: str, started: float) -> None:
+        if on_progress is not None:
+            on_progress(
+                IngestStep(
+                    phase=phase,
+                    title=title,
+                    detail=detail,
+                    duration_ms=round((time.perf_counter() - started) * 1000, 1),
+                )
+            )
+
     # -- 1. to Markdown ---------------------------------------------------
+    phase_started = time.perf_counter()
     if text is not None and text.strip():
         markdown = text.strip()
         truncated = False
@@ -84,21 +105,40 @@ def ingest_document(
         converted = to_markdown(filename or "upload.txt", data)
         markdown = converted.markdown
         truncated = converted.truncated
+    publish(
+        "convert",
+        "Converted to Markdown" if data is not None else "Took the pasted text",
+        f"{len(markdown):,} characters"
+        + (" (trimmed before reading)" if truncated else ""),
+        phase_started,
+    )
 
-    resolved_title = (
-        (title or "").strip()
-        or _title_from(filename)
-        or _title_from_text(markdown)
-        or "Uploaded document"
+    resolved_title = preview_title(
+        title=title or "", filename=filename, text=markdown
     )
 
     # -- 2. extract -------------------------------------------------------
     # The catalogue is fetched before extraction so the model can reuse the ids
     # that already exist instead of proposing a second id for the same service.
+    phase_started = time.perf_counter()
     known = repository.entity_catalogue()
     outcome = extract_graph(resolved_title, markdown, known, invoke=invoke)
+    if outcome.model_used:
+        extract_detail = (
+            f"{len(outcome.entities)} entities, {len(outcome.relationships)} relationships"
+            + (f", {len(outcome.rejected)} refused" if outcome.rejected else "")
+        )
+    else:
+        extract_detail = "nothing extracted; the document is still stored and citable"
+    publish(
+        "extract",
+        "Read the document for entities" if outcome.model_used else "No model available",
+        extract_detail,
+        phase_started,
+    )
 
     # -- 3. write ---------------------------------------------------------
+    phase_started = time.perf_counter()
     document_id = document_id_for(resolved_title, markdown)
     repository.upsert_document(
         {
@@ -137,11 +177,16 @@ def ingest_document(
             ]
         )
 
-    # Provenance: everything the document contributed or referred to. New
-    # entities need a fresh catalogue read, because the ids did not exist when
-    # `known` was fetched.
+    # Provenance: everything the document contributed or referred to.
     touched = [e.id for e in outcome.entities]
     linked = repository.link_document_to_entities(document_id, touched)
+    publish(
+        "write",
+        "Wrote it into the graph",
+        f"{written_entities} new entities, {written_relationships} relationships, "
+        f"{linked} citations",
+        phase_started,
+    )
 
     logger.info(
         "Ingested %s: %d new entities, %d relationships, %d citations%s",
@@ -199,7 +244,7 @@ def _props_for(entity: Any) -> dict[str, Any]:
     return props
 
 
-def _title_from_text(markdown: str) -> str:
+def title_from_text(markdown: str) -> str:
     """A title from the document's own first line, for pasted text.
 
     Pasted text has no filename, and "Uploaded document" tells the reader
@@ -214,7 +259,7 @@ def _title_from_text(markdown: str) -> str:
     return ""
 
 
-def _title_from(filename: str) -> str:
+def title_from(filename: str) -> str:
     """A serviceable title from a filename when the user did not give one."""
     stem = filename.rsplit("/", 1)[-1]
     for suffix in (".markdown", ".md", ".txt", ".html", ".pdf", ".docx", ".pptx", ".xlsx"):
@@ -224,9 +269,27 @@ def _title_from(filename: str) -> str:
     return stem.replace("_", " ").replace("-", " ").strip()
 
 
+def preview_title(*, title: str = "", filename: str = "", text: str = "") -> str:
+    """The title an ingestion will end up with, without ingesting it.
+
+    A queued upload returns before any of this is known, but the progress header
+    should still name the document. This is the same resolution
+    `ingest_document` performs, so the preview cannot drift from the result.
+    """
+    return (
+        (title or "").strip()
+        or title_from(filename)
+        or title_from_text(text)
+        or "Uploaded document"
+    )
+
+
 __all__ = [
     "SOURCE_TYPES",
     "ExtractionOutcome",
     "document_id_for",
     "ingest_document",
+    "preview_title",
+    "title_from",
+    "title_from_text",
 ]

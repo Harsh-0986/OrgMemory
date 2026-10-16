@@ -557,7 +557,24 @@ class TestIngestionSchemaInterlock:
             )
 
 
+@pytest.fixture
+def ingest_jobs_registry():
+    """Keep the process-wide job registry from leaking between tests."""
+    from app.ingest import jobs as ingest_jobs
+
+    ingest_jobs.registry.clear()
+    yield ingest_jobs.registry
+    ingest_jobs.registry.clear()
+
+
 class TestIngestApi:
+    """The synchronous path, reached with `?wait=true`.
+
+    Queued ingestion is the default (see `TestIngestJobs`). The waiting path is
+    not merely a test convenience - it is what a script or a curl call wants -
+    and exercising it here means the two paths cannot quietly diverge.
+    """
+
     def test_capabilities_are_reported(self, client):
         body = client.get("/api/ingest/capabilities").json()
         assert ".md" in body["supported_extensions"]
@@ -571,7 +588,7 @@ class TestIngestApi:
         still be stored and citable, and `model_used` must say so honestly.
         """
         response = client.post(
-            "/api/ingest/text",
+            "/api/ingest/text?wait=true",
             json={"title": "Note", "content": "Something about a service."},
         )
         assert response.status_code == 200, response.text
@@ -581,7 +598,7 @@ class TestIngestApi:
 
     def test_a_bad_file_is_a_400_with_a_readable_message(self, client):
         response = client.post(
-            "/api/ingest/file",
+            "/api/ingest/file?wait=true",
             files={"file": ("archive.zip", b"PK\x03\x04", "application/zip")},
         )
         assert response.status_code == 400
@@ -591,7 +608,7 @@ class TestIngestApi:
 
     def test_file_ingestion_succeeds_and_returns_a_report(self, client):
         response = client.post(
-            "/api/ingest/file",
+            "/api/ingest/file?wait=true",
             files={"file": ("note.md", b"# Note\n\nAbout the Ledger.", "text/markdown")},
         )
         assert response.status_code == 200, response.text
@@ -599,10 +616,141 @@ class TestIngestApi:
 
     def test_an_empty_upload_is_a_400(self, client):
         response = client.post(
-            "/api/ingest/file",
+            "/api/ingest/file?wait=true",
             files={"file": ("note.md", b"", "text/markdown")},
         )
         assert response.status_code == 400
+
+    def test_an_oversized_upload_is_refused_before_it_is_read(self, client, monkeypatch):
+        """The size is known from the part header, so say no without reading it.
+
+        The limit is patched down rather than uploading 8MB, which would make the
+        suite slow without testing anything the small payload does not.
+        """
+        monkeypatch.setattr("app.api.routes.ingest.MAX_UPLOAD_BYTES", 64)
+
+        response = client.post(
+            "/api/ingest/file?wait=true",
+            files={"file": ("big.md", b"x" * 500, "text/markdown")},
+        )
+
+        assert response.status_code == 413
+        error = response.json()["error"]
+        assert error["code"] == "payload_too_large"
+        assert "larger than" in error["message"]
+
+
+class TestIngestJobs:
+    """Queued ingestion: POST answers at once, the client polls for progress.
+
+    The reason to queue is that extraction is a model call that can take minutes.
+    Holding the connection open for it means one opaque spinner and a request
+    that a proxy may well kill first; queueing means the same wait, with the
+    phases visible as they finish.
+    """
+
+    def test_an_upload_is_queued_rather_than_held_open(self, client, ingest_jobs_registry):
+        response = client.post(
+            "/api/ingest/file",
+            files={
+                "file": (
+                    "payments_runbook.md",
+                    b"# Payments Runbook\n\nAbout the Ledger.",
+                    "text/markdown",
+                )
+            },
+        )
+
+        assert response.status_code == 202, response.text
+        body = response.json()
+        assert body["job_id"].startswith("ing-")
+        assert body["poll_url"] == f"/api/ingest/{body['job_id']}/status"
+        # The title is the one the document will actually end up with, derived
+        # the same way `ingest_document` derives it. A queued upload can say what
+        # it is about before it has read a word of it.
+        assert body["title"] == "payments runbook"
+
+    def test_polling_reaches_the_report(self, client, ingest_jobs_registry):
+        accepted = client.post(
+            "/api/ingest/text",
+            json={"title": "Note", "content": "Something about a service."},
+        ).json()
+
+        status = client.get(accepted["poll_url"]).json()
+
+        assert status["done"] is True
+        assert status["status"] == "completed"
+        assert status["error"] is None
+        assert status["finished_at"] is not None
+        assert status["result"]["document_id"].startswith("doc-ingested-")
+
+    def test_each_phase_is_published_as_it_finishes(self, client, ingest_jobs_registry):
+        accepted = client.post(
+            "/api/ingest/text",
+            json={"title": "Note", "content": "Something about a service."},
+        ).json()
+
+        steps = client.get(accepted["poll_url"]).json()["steps"]
+
+        assert [step["phase"] for step in steps] == ["convert", "extract", "write"]
+        assert all(step["duration_ms"] >= 0 for step in steps)
+        # The extraction step has to admit that no model was available, because
+        # "the document had no entities" and "nothing looked" are different
+        # results and only one of them is the document's fault.
+        extract = next(step for step in steps if step["phase"] == "extract")
+        assert "No model available" in extract["title"]
+
+    def test_the_read_step_reports_what_it_found(self, client, ingest_jobs_registry, monkeypatch):
+        """Once a model is in play, the step counts what came back."""
+
+        def fake_extract(title, markdown, known=None, *, invoke=None):  # noqa: ANN001, ANN202
+            return ExtractionOutcome(
+                model_used=True,
+                entities=[
+                    {"id": "svc-x", "type": "Service", "name": "X Service"},
+                ],
+                relationships=[],
+            )
+
+        monkeypatch.setattr("app.ingest.service.extract_graph", fake_extract)
+
+        accepted = client.post(
+            "/api/ingest/text",
+            json={"title": "Note", "content": "Something about a service."},
+        ).json()
+        steps = client.get(accepted["poll_url"]).json()["steps"]
+        extract = next(step for step in steps if step["phase"] == "extract")
+
+        assert extract["title"] == "Read the document for entities"
+        assert "1 entities" in extract["detail"]
+
+    def test_a_failed_ingestion_is_reported_not_lost(
+        self, client, ingest_jobs_registry, monkeypatch
+    ):
+        def explode(*args, **kwargs):  # noqa: ANN002, ANN003, ANN202
+            raise ValueError("The reader returned something unreadable.")
+
+        monkeypatch.setattr("app.ingest.service.extract_graph", explode)
+
+        accepted = client.post(
+            "/api/ingest/text",
+            json={"title": "Note", "content": "Something about a service."},
+        ).json()
+        status = client.get(accepted["poll_url"]).json()
+
+        assert status["status"] == "failed"
+        assert status["done"] is True
+        assert status["result"] is None
+        # The message is shown to the user verbatim, so it must be the reason
+        # rather than a repr of the exception.
+        assert "unreadable" in status["error"]
+
+    def test_an_unknown_job_is_a_404(self, client, ingest_jobs_registry):
+        """A job lost to a restart must read as absent, not as running forever."""
+        response = client.get("/api/ingest/ing-doesnotexist/status")
+
+        assert response.status_code == 404
+        assert response.json()["error"]["code"] == "not_found"
 
 
 class TestIngestDoesNotBlockTheServer:
@@ -614,9 +762,12 @@ class TestIngestDoesNotBlockTheServer:
     only thread serving every other request. The symptom was that uploading a
     document made every other endpoint hang for as long as the upload took.
 
-    These tests are the reason that cannot come back, and they assert on latency
-    rather than on the presence of `run_in_threadpool`, because the latency is
-    the thing that was broken.
+    Both paths need guarding. The queued path hands work to the background thread
+    pool by construction, but `?wait=true` runs the pipeline from inside the
+    route, where "it is only one call" is exactly the reasoning that broke it.
+
+    These tests assert latency rather than the presence of `run_in_threadpool`,
+    because latency is the thing that was broken.
     """
 
     @staticmethod
@@ -640,18 +791,14 @@ class TestIngestDoesNotBlockTheServer:
         monkeypatch.setattr("app.api.routes.health.graph_client.ping", lambda: True)
         return app
 
-    async def test_health_answers_while_an_upload_is_in_flight(
-        self, fake_repo, monkeypatch
-    ):
-        self._slow_pipeline(monkeypatch, seconds=1.0)
-        app = self._app(fake_repo, monkeypatch)
-
+    async def _slow_upload_against_a_free_loop(self, app, url: str) -> httpx.Response:
+        """Start a slow ingest and prove the event loop kept running."""
         async with httpx.AsyncClient(
             transport=httpx.ASGITransport(app=app), base_url="http://test"
         ) as client:
             upload = asyncio.create_task(
                 client.post(
-                    "/api/ingest/file",
+                    url,
                     files={"file": ("note.md", b"# Note\n\nBody.", "text/markdown")},
                 )
             )
@@ -659,7 +806,7 @@ class TestIngestDoesNotBlockTheServer:
             # The signal is timer accuracy, not a stopwatch around one request.
             # A free event loop returns from this sleep on time; a blocked one
             # cannot fire the timer until the blocking call finishes, so the
-            # overshoot is the blockage. Timing a request afterwards would
+            # overshoot *is* the blockage. Timing a request afterwards would
             # measure nothing, because by then the block is already over.
             started = time.perf_counter()
             await asyncio.sleep(0.15)
@@ -677,7 +824,28 @@ class TestIngestDoesNotBlockTheServer:
 
             assert health.status_code == 200
             assert elapsed < 0.5, f"/health took {elapsed:.2f}s while an upload was in flight"
-            assert (await upload).status_code == 200
+
+            return await upload
+
+    async def test_a_queued_upload_does_not_stall_the_loop(
+        self, fake_repo, ingest_jobs_registry, monkeypatch
+    ):
+        self._slow_pipeline(monkeypatch)
+        response = await self._slow_upload_against_a_free_loop(
+            self._app(fake_repo, monkeypatch), "/api/ingest/file"
+        )
+
+        assert response.status_code == 202, response.text
+
+    async def test_a_waiting_upload_does_not_stall_the_loop(
+        self, fake_repo, monkeypatch
+    ):
+        self._slow_pipeline(monkeypatch)
+        response = await self._slow_upload_against_a_free_loop(
+            self._app(fake_repo, monkeypatch), "/api/ingest/file?wait=true"
+        )
+
+        assert response.status_code == 200, response.text
 
     async def test_a_slow_upload_still_returns_its_report(self, fake_repo, monkeypatch):
         """The fix must not turn a slow upload into a failed one."""
@@ -688,7 +856,7 @@ class TestIngestDoesNotBlockTheServer:
             transport=httpx.ASGITransport(app=app), base_url="http://test"
         ) as client:
             response = await client.post(
-                "/api/ingest/file",
+                "/api/ingest/file?wait=true",
                 files={"file": ("note.md", b"# Note\n\nBody.", "text/markdown")},
             )
 

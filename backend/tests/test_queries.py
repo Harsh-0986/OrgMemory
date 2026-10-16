@@ -325,18 +325,31 @@ class TestLiveFalkorDB:
             assert not missing, f"{label} entities missing from the graph: {missing}"
 
     def test_investigation_memory_lives_in_the_graph(self, integration):
-        """Cross-session memory must be stored as edges, not app memory."""
+        """Cross-session memory must be stored as edges, not app memory.
+
+        Scans the recent investigations rather than assuming the newest one
+        cites something. A citation-free investigation is a legitimate record -
+        it is what you get when no model is configured, or when the graph simply
+        holds nothing relevant - and asserting on the newest record made the test
+        depend on which question was asked last.
+        """
         from app.graph.repository import GraphRepository
 
         repo = GraphRepository()
-        rows = repo.list_investigations(limit=5)
+        rows = repo.list_investigations(limit=10)
         assert rows, "expected at least one stored investigation"
 
-        record = repo.get_investigation(rows[0]["id"])
-        assert record is not None
-        assert record["cited_entities"], "stored investigation should cite graph nodes"
-        for node in record["cited_entities"]:
-            assert repo.get_entity(node.id) is not None
+        records = [repo.get_investigation(row["id"]) for row in rows]
+        records = [record for record in records if record is not None]
+        citing = [record for record in records if record["cited_entities"]]
+
+        assert citing, "no stored investigation cites graph nodes"
+
+        # Whatever was cited must still resolve: a dangling citation is worse
+        # than none, because it reads as evidence and is not.
+        for record in citing:
+            for node in record["cited_entities"]:
+                assert repo.get_entity(node.id) is not None, node.id
 
     def test_impact_matches_reference_model(self, integration):
         from app.graph.repository import GraphRepository
