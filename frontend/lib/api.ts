@@ -14,6 +14,8 @@ import type {
   InvestigationStatus,
   FullGraphResponse,
   GraphOverview,
+  IngestCapabilities,
+  IngestReport,
   InvestigationHistory,
   InvestigationResponse,
 } from "./types";
@@ -36,16 +38,33 @@ export class ApiRequestError extends Error {
 /** Abort a request that hangs, so the UI can never sit on a spinner forever. */
 const REQUEST_TIMEOUT_MS = 90_000;
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
+/**
+ * Ingestion runs document conversion and then a model call, so it gets a longer
+ * leash than a read. A slow local model is not a broken request.
+ */
+const INGEST_TIMEOUT_MS = 300_000;
+
+async function request<T>(
+  path: string,
+  init?: RequestInit,
+  timeoutMs = REQUEST_TIMEOUT_MS,
+): Promise<T> {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+  // A FormData body must set its own multipart Content-Type, boundary included;
+  // forcing JSON here would make the upload unparseable on the server.
+  const isForm = typeof FormData !== "undefined" && init?.body instanceof FormData;
+  const headers: Record<string, string> = isForm
+    ? { ...((init?.headers as Record<string, string>) ?? {}) }
+    : { "Content-Type": "application/json", ...((init?.headers as Record<string, string>) ?? {}) };
 
   let response: Response;
   try {
     response = await fetch(`${API_BASE_URL}${path}`, {
       ...init,
       signal: controller.signal,
-      headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
+      headers,
     });
   } catch (err) {
     // An aborted request is indistinguishable from a hung one to a user, and
@@ -125,4 +144,49 @@ export const api = {
 
   investigation: (id: string) =>
     request<unknown>(`/api/investigations/${encodeURIComponent(id)}`),
+
+  // -- Ingestion ----------------------------------------------------------
+
+  ingestCapabilities: () => request<IngestCapabilities>("/api/ingest/capabilities"),
+
+  /**
+   * Upload a document to be converted to Markdown and mined for entities.
+   *
+   * Expected to take a while: conversion is local, but extraction is a model
+   * call, so this uses the longer ingestion timeout.
+   */
+  ingestFile: (
+    file: File,
+    options: { title?: string; sourceType?: string; sourceUri?: string } = {},
+  ) => {
+    const body = new FormData();
+    body.append("file", file);
+    if (options.title) body.append("title", options.title);
+    body.append("source_type", options.sourceType ?? "upload");
+    if (options.sourceUri) body.append("source_uri", options.sourceUri);
+    return request<IngestReport>(
+      "/api/ingest/file",
+      { method: "POST", body },
+      INGEST_TIMEOUT_MS,
+    );
+  },
+
+  /** Ingest pasted text. No conversion step, same pipeline afterwards. */
+  ingestText: (
+    content: string,
+    options: { title?: string; sourceType?: string; sourceUri?: string } = {},
+  ) =>
+    request<IngestReport>(
+      "/api/ingest/text",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          content,
+          title: options.title ?? "",
+          source_type: options.sourceType ?? "note",
+          source_uri: options.sourceUri ?? "",
+        }),
+      },
+      INGEST_TIMEOUT_MS,
+    ),
 };

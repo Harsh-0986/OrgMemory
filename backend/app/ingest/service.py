@@ -85,7 +85,12 @@ def ingest_document(
         markdown = converted.markdown
         truncated = converted.truncated
 
-    resolved_title = (title or "").strip() or _title_from(filename) or "Uploaded document"
+    resolved_title = (
+        (title or "").strip()
+        or _title_from(filename)
+        or _title_from_text(markdown)
+        or "Uploaded document"
+    )
 
     # -- 2. extract -------------------------------------------------------
     # The catalogue is fetched before extraction so the model can reuse the ids
@@ -192,6 +197,21 @@ def _props_for(entity: Any) -> dict[str, Any]:
         else:
             props[str(key)] = str(value)
     return props
+
+
+def _title_from_text(markdown: str) -> str:
+    """A title from the document's own first line, for pasted text.
+
+    Pasted text has no filename, and "Uploaded document" tells the reader
+    nothing - least of all which document it is when there are several. The first
+    non-empty line is almost always the heading the author already wrote, so the
+    obvious title is the one that was sitting right there.
+    """
+    for line in markdown.splitlines():
+        cleaned = line.strip().lstrip("#").strip()
+        if cleaned:
+            return cleaned[:120]
+    return ""
 
 
 def _title_from(filename: str) -> str:

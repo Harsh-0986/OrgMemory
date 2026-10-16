@@ -260,3 +260,47 @@ export interface ApiError {
     detail: string | null;
   };
 }
+
+/** One entity an upload created, or pointed at if it already existed. */
+export interface IngestedEntity {
+  id: string;
+  type: string;
+  name: string;
+}
+
+/** A proposal the extractor made that validation refused, with the reason. */
+export interface RejectedItem {
+  item: string;
+  reason: string;
+}
+
+/**
+ * What an upload actually did.
+ *
+ * `entities_created` and `entities_linked` are deliberately separate, because
+ * "the graph learned something" and "the graph already knew this" are different
+ * results and the panel shows them apart.
+ */
+export interface IngestReport {
+  document_id: string;
+  title: string;
+  source_type: string;
+  /** False when no model was configured, so extraction cannot have run. */
+  model_used: boolean;
+  summary: string;
+  entities_created: IngestedEntity[];
+  entities_linked: IngestedEntity[];
+  relationships_created: string[];
+  rejected: RejectedItem[];
+  citations_linked: number;
+  truncated: boolean;
+  markdown_chars: number;
+}
+
+export interface IngestCapabilities {
+  supported_extensions: string[];
+  max_upload_bytes: number;
+  source_types: string[];
+  /** Whether ingestion will actually use a model right now. */
+  model_available: boolean;
+}

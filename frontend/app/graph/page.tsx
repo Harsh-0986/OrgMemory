@@ -13,6 +13,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import GraphCanvas from "@/components/GraphCanvas";
+import IngestPanel from "@/components/IngestPanel";
 import { api, ApiRequestError } from "@/lib/api";
 import type { EntityListResponse, FullGraphResponse, GraphOverview, NodeRef } from "@/lib/types";
 
@@ -60,6 +61,12 @@ export default function GraphDataPage() {
   const [graphError, setGraphError] = useState<string | null>(null);
   const [focused, setFocused] = useState<string | null>(null);
 
+  // Bumped after an upload, because the graph just changed underneath us. It is
+  // part of the keys the fetches depend on, so the counts, the table and the
+  // picture all come back consistent instead of drifting apart.
+  const [dataVersion, setDataVersion] = useState(0);
+  const [showIngest, setShowIngest] = useState(false);
+
   // Derived, not stored: nothing has arrived and nothing has failed yet.
   const graphLoading = graph === null && graphError === null;
 
@@ -68,7 +75,7 @@ export default function GraphDataPage() {
       .overview()
       .then(setOverview)
       .catch(() => setOverview(null));
-  }, []);
+  }, [dataVersion]);
 
   useEffect(() => {
     let cancelled = false;
@@ -86,7 +93,7 @@ export default function GraphDataPage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [dataVersion]);
 
   // Typing should not fire a query per keystroke, so the text input and the
   // value that actually drives the request are separate.
@@ -97,7 +104,7 @@ export default function GraphDataPage() {
     return () => clearTimeout(timer);
   }, [search]);
 
-  const requestKey = `${label}\u0000${debounced}`;
+  const requestKey = `${label}\u0000${debounced}\u0000${dataVersion}`;
   const loading = result?.key !== requestKey;
   const data = result?.data ?? null;
   const error = result?.error ?? null;
@@ -202,7 +209,17 @@ export default function GraphDataPage() {
             the data explains either gap — which is what the assistant has to tell you
             when it hits them.
           </p>
+          <button
+            type="button"
+            onClick={() => setShowIngest((open) => !open)}
+            aria-expanded={showIngest}
+            className="mt-6 font-ui text-sm text-link underline decoration-solid underline-offset-4 transition hover:text-ink"
+          >
+            {showIngest ? "Close the upload panel" : "Add a document to the graph →"}
+          </button>
         </section>
+
+        {showIngest && <IngestPanel onIngested={() => setDataVersion((v) => v + 1)} />}
 
         {/* View switch. Graph first: this is a graph tool, and the picture is
             the faster way to read the shape of the data. */}
