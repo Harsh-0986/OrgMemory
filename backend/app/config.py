@@ -69,11 +69,21 @@ class Settings(BaseSettings):
     # using its deterministic writer, so the demo never depends on a metered
     # endpoint being reachable.
     llm_enabled: bool = True
+
+    # Which provider to use: `nvidia`, `google`, or `auto` to take whichever
+    # key happens to be present.
+    llm_provider: str = "auto"
+
+    # -- NVIDIA NIM (OpenAI-compatible) ----------------------------------
     nvidia_api_key: str = ""
     nvidia_base_url: str = "https://integrate.api.nvidia.com/v1"
     nvidia_model: str = "z-ai/glm-5.3-flash"
     nvidia_temperature: float = 0.0
     nvidia_max_tokens: int = 2048
+
+    # -- Google Gemini (official langchain-google-genai client) -----------
+    google_api_key: str = ""
+    google_model: str = "gemini-3.8-flash"
 
     # -- Agent execution limits ------------------------------------------
     agent_max_steps: int = Field(default=8, ge=1, le=50)
@@ -100,7 +110,11 @@ class Settings(BaseSettings):
     @property
     def is_configured(self) -> bool:
         """True when both the graph and the LLM have credentials available."""
-        return bool(self.falkordb_host and self.falkordb_password and self.nvidia_api_key)
+        return bool(
+            self.falkordb_host
+            and self.falkordb_password
+            and (self.nvidia_api_key or self.google_api_key)
+        )
 
     @property
     def missing_settings(self) -> list[str]:
@@ -110,8 +124,8 @@ class Settings(BaseSettings):
             missing.append("FALKORDB_PASSWORD")
         if not self.falkordb_host:
             missing.append("FALKORDB_HOST")
-        if not self.nvidia_api_key:
-            missing.append("NVIDIA_API_KEY")
+        if not (self.nvidia_api_key or self.google_api_key):
+            missing.append("NVIDIA_API_KEY or GOOGLE_API_KEY")
         return missing
 
 

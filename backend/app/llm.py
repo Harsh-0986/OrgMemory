@@ -1,47 +1,69 @@
-"""LLM provider wiring for NVIDIA NIM.
+"""LLM provider wiring.
 
-NVIDIA NIM exposes an OpenAI-compatible chat completions endpoint, so we reuse
-`ChatOpenAI` and simply repoint `base_url`. That keeps the whole agent on the
-standard LangChain interface and avoids a bespoke HTTP client.
+Two providers are supported, selected by `LLM_PROVIDER`:
 
-The provider is created lazily and cached, and it never raises at import time -
-a missing API key must surface as a clean API error, not an import crash.
+* ``nvidia`` - NVIDIA NIM through `ChatOpenAI`. NIM is natively
+  OpenAI-compatible, so this is its real interface, not an adaptation.
+* ``google`` - Google Gemini through `langchain-google-genai`, the official
+  LangChain integration. Not the OpenAI-shaped endpoint: the user was explicit
+  that this should be a real Gemini client.
+* ``auto``   - whichever provider has a key, preferring the explicit setting.
+
+The provider is resolved lazily and cached. A missing key raises
+`LLMUnavailable` rather than failing at import, so the API can return a clean
+503 and the agent can fall back to its deterministic writer.
 """
 
 from __future__ import annotations
 
 import logging
 from functools import lru_cache
-from typing import Any
+from typing import Any, Literal
 
 from app.config import Settings, get_settings
 
 logger = logging.getLogger(__name__)
+
+ProviderName = Literal["nvidia", "google"]
 
 
 class LLMUnavailable(RuntimeError):
     """Raised when the language model cannot be reached or is unconfigured."""
 
 
-@lru_cache
-def get_llm() -> Any:
-    """Return the cached chat model used by every agent node."""
-    settings = get_settings()
-    return _build_llm(settings)
+def resolve_provider(settings: Settings | None = None) -> ProviderName | None:
+    """Which provider to use, or None if none is usable."""
+    settings = settings or get_settings()
+    choice = (settings.llm_provider or "auto").strip().lower()
+
+    if choice == "nvidia":
+        return "nvidia" if settings.nvidia_api_key else None
+    if choice == "google":
+        return "google" if settings.google_api_key else None
+
+    # auto - fall back to whichever key exists.
+    if settings.nvidia_api_key:
+        return "nvidia"
+    if settings.google_api_key:
+        return "google"
+    return None
 
 
-def _build_llm(settings: Settings) -> Any:
-    """Construct a `ChatOpenAI` client aimed at the configured NIM endpoint."""
-    if not settings.llm_enabled:
-        raise LLMUnavailable(
-            "The language model is disabled (LLM_ENABLED=false). Investigations "
-            "will run using the deterministic writer instead."
-        )
+def describe_providers(settings: Settings | None = None) -> list[str]:
+    """Names of providers that currently have credentials. Used by /health."""
+    settings = settings or get_settings()
+    available = []
+    if settings.nvidia_api_key:
+        available.append("nvidia")
+    if settings.google_api_key:
+        available.append("google")
+    return available
+
+
+def _build_nvidia(settings: Settings) -> Any:
+    """NVIDIA NIM via `ChatOpenAI` pointed at the NIM endpoint."""
     if not settings.nvidia_api_key:
-        raise LLMUnavailable(
-            "NVIDIA_API_KEY is not configured. Add it to your .env file to enable "
-            "natural-language investigation."
-        )
+        raise LLMUnavailable("NVIDIA_API_KEY is not configured.")
 
     try:
         from langchain_openai import ChatOpenAI
@@ -56,12 +78,62 @@ def _build_llm(settings: Settings) -> Any:
             temperature=settings.nvidia_temperature,
             max_tokens=settings.nvidia_max_tokens,
             # Bounded retries: a flaky endpoint must fail fast enough that the
-            # agent's overall step budget still governs the run.
+            # agent's own step budget still governs the run.
             max_retries=2,
             timeout=settings.agent_query_timeout_seconds * 4,
         )
     except Exception as exc:  # pragma: no cover - defensive
-        raise LLMUnavailable(f"Could not initialise the chat model: {exc}") from exc
+        raise LLMUnavailable(f"Could not initialise the NVIDIA client: {exc}") from exc
+
+
+def _build_google(settings: Settings) -> Any:
+    """Google Gemini via the official `langchain-google-genai` integration."""
+    if not settings.google_api_key:
+        raise LLMUnavailable("GOOGLE_API_KEY is not configured.")
+
+    try:
+        from langchain_google_genai import ChatGoogleGenerativeAI
+    except ImportError as exc:
+        raise LLMUnavailable(
+            "langchain-google-genai is not installed. Run `uv sync`."
+        ) from exc
+
+    try:
+        return ChatGoogleGenerativeAI(
+            model=settings.google_model,
+            google_api_key=settings.google_api_key,
+            temperature=settings.nvidia_temperature,
+            max_output_tokens=settings.nvidia_max_tokens,
+            timeout=settings.agent_query_timeout_seconds * 4,
+            max_retries=2,
+        )
+    except Exception as exc:  # pragma: no cover - defensive
+        raise LLMUnavailable(f"Could not initialise the Gemini client: {exc}") from exc
+
+
+def _build(settings: Settings) -> Any:
+    """Dispatch to the configured provider."""
+    if not settings.llm_enabled:
+        raise LLMUnavailable(
+            "The language model is disabled (LLM_ENABLED=false). Investigations "
+            "will run using the deterministic writer instead."
+        )
+
+    provider = resolve_provider(settings)
+    if provider is None:
+        raise LLMUnavailable(
+            "No LLM is configured. Set NVIDIA_API_KEY or GOOGLE_API_KEY, or "
+            "LLM_ENABLED=false to run without a model."
+        )
+
+    logger.info("Using LLM provider '%s'", provider)
+    return _build_nvidia(settings) if provider == "nvidia" else _build_google(settings)
+
+
+@lru_cache
+def get_llm() -> Any:
+    """Return the cached chat model used by every agent node."""
+    return _build(get_settings())
 
 
 def reset_llm_cache() -> None:
@@ -70,6 +142,6 @@ def reset_llm_cache() -> None:
 
 
 def llm_is_configured() -> bool:
-    """True when a model endpoint and API key are both present and enabled."""
+    """True when the model is enabled and some provider has credentials."""
     settings = get_settings()
-    return bool(settings.llm_enabled and settings.nvidia_api_key and settings.nvidia_base_url)
+    return bool(settings.llm_enabled and resolve_provider(settings))
