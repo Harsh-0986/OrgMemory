@@ -22,6 +22,10 @@ import {
 } from "@/lib/force";
 import type { Edge, GraphPath, NodeRef } from "@/lib/types";
 
+/** Zoom bounds. Beyond 6x labels collide; below 0.4x nothing is legible. */
+const MIN_ZOOM = 0.4;
+const MAX_ZOOM = 6;
+
 interface GraphCanvasProps {
   nodes: NodeRef[];
   edges: Edge[];
@@ -45,6 +49,36 @@ export default function GraphCanvas({
   const [dragged, setDragged] = useState<Record<string, { x: number; y: number }>>({});
   const dragRef = useRef<{ id: string; offsetX: number; offsetY: number } | null>(null);
   const svgRef = useRef<SVGSVGElement>(null);
+
+  // Viewport: a viewBox over the laid-out graph, so zooming and panning cost
+  // no re-layout and no re-render of the simulation.
+  const [view, setView] = useState({ x: 0, y: 0, scale: 1 });
+  // Mirrors of the latest view/zoom handler for the native wheel listener,
+  // which is attached once and must not close over stale state.
+  const viewRef = useRef(view);
+  const wheelRef = useRef<
+    ((event: WheelEvent, current: { x: number; y: number; scale: number }) => void) | null
+  >(null);
+  /** Detaches the wheel listener from the previous SVG node, if any. */
+  const wheelCleanup = useRef<(() => void) | null>(null);
+  const panRef = useRef<{
+    pointerX: number;
+    pointerY: number;
+    viewX: number;
+    viewY: number;
+  } | null>(null);
+  const [panning, setPanning] = useState(false);
+
+  // A new investigation should start framed, not wherever the last one was left.
+  const signature = nodes.map((n) => n.id).join("|");
+  const lastSignature = useRef(signature);
+  useEffect(() => {
+    if (lastSignature.current !== signature) {
+      lastSignature.current = signature;
+      setView({ x: 0, y: 0, scale: 1 });
+      setDragged({});
+    }
+  }, [signature]);
 
   useEffect(() => {
     const element = wrapRef.current;
@@ -116,7 +150,129 @@ export default function GraphCanvas({
     return { x: clientX - rect.left, y: clientY - rect.top };
   }, []);
 
+  /** Client pixels -> graph units, honouring the current viewBox. */
+  const toGraphAt = (
+    clientX: number,
+    clientY: number,
+    current: { x: number; y: number; scale: number },
+  ) => {
+    const svg = svgRef.current;
+    if (!svg) return { x: 0, y: 0 };
+    const rect = svg.getBoundingClientRect();
+    const vbWidth = width / current.scale;
+    const vbHeight = height / current.scale;
+    return {
+      x: current.x + ((clientX - rect.left) / rect.width) * vbWidth,
+      y: current.y + ((clientY - rect.top) / rect.height) * vbHeight,
+    };
+  };
+
+  const toGraph = (clientX: number, clientY: number) =>
+    toGraphAt(clientX, clientY, view);
+
+  const zoomTo = (nextScale: number, anchorX: number, anchorY: number) => {
+    const clamped = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, nextScale));
+    setView((prev) => {
+      if (clamped === prev.scale) return prev;
+      // Keep the point under the cursor fixed while the scale changes.
+      const ratio = clamped / prev.scale;
+      return {
+        scale: clamped,
+        x: anchorX - (anchorX - prev.x) * ratio,
+        y: anchorY - (anchorY - prev.y) * ratio,
+      };
+    });
+  };
+
+  /**
+   * Wheel zooms toward the pointer. ctrl+wheel is the trackpad pinch gesture.
+   *
+   * This has to be a native listener. React attaches `wheel` passively at the
+   * root, so the `preventDefault()` in a JSX `onWheel` is ignored - which is
+   * why the graph zoomed and the page scrolled underneath it at the same time.
+   * Only a non-passive listener on the element can claim the gesture.
+   */
+  const zoomWithWheel = (event: WheelEvent, current: typeof view) => {
+    event.preventDefault();
+    const point = toGraphAt(event.clientX, event.clientY, current);
+    zoomTo(
+      current.scale * Math.exp(-event.deltaY * 0.0015),
+      point.x,
+      point.y,
+    );
+  };
+
+  // Kept fresh after every render so the listener below never reads stale
+  // state. Refs cannot be written during render, so this runs as an effect.
+  useEffect(() => {
+    viewRef.current = view;
+    wheelRef.current = zoomWithWheel;
+  });
+
+  /**
+   * A callback ref rather than an effect, because the SVG only exists once the
+   * graph data has arrived. An effect with `[]` deps runs while the empty state
+   * is still showing, finds no node, and never runs again - which is how the
+   * listener silently failed to attach.
+   */
+  const attachWheelZoom = useCallback((node: SVGSVGElement | null) => {
+    wheelCleanup.current?.();
+    wheelCleanup.current = null;
+    svgRef.current = node;
+    if (!node) return;
+
+    const onWheel = (event: WheelEvent) => {
+      wheelRef.current?.(event, viewRef.current);
+    };
+    node.addEventListener("wheel", onWheel, { passive: false });
+    wheelCleanup.current = () => node.removeEventListener("wheel", onWheel);
+  }, []);
+
+  /** Dragging the background pans; dragging a node moves that node instead. */
+  const handlePanStart = (event: React.PointerEvent) => {
+    panRef.current = {
+      pointerX: event.clientX,
+      pointerY: event.clientY,
+      viewX: view.x,
+      viewY: view.y,
+    };
+    setPanning(true);
+    (event.currentTarget as Element).setPointerCapture?.(event.pointerId);
+  };
+
+  const handlePanMove = (event: React.PointerEvent) => {
+    const pan = panRef.current;
+    const svg = svgRef.current;
+    if (!pan || !svg) return;
+    const rect = svg.getBoundingClientRect();
+    if (rect.width === 0 || rect.height === 0) return;
+
+    // Dragging the canvas moves the *content* with the pointer, the way a map
+    // or a canvas does: dragging left pulls the graph left, which means the
+    // viewport origin moves right. Adding the delta instead would slide the
+    // graph the opposite way to the cursor.
+    const dx = ((event.clientX - pan.pointerX) / rect.width) * (width / view.scale);
+    const dy = ((event.clientY - pan.pointerY) / rect.height) * (height / view.scale);
+    setView((prev) => ({ ...prev, x: pan.viewX - dx, y: pan.viewY - dy }));
+  };
+
+  const stopPan = () => {
+    panRef.current = null;
+    setPanning(false);
+  };
+
+  const zoomByStep = (factor: number) => {
+    const centre = toGraph(
+      (svgRef.current?.getBoundingClientRect().left ?? 0) +
+        (svgRef.current?.getBoundingClientRect().width ?? 0) / 2,
+      (svgRef.current?.getBoundingClientRect().top ?? 0) +
+        (svgRef.current?.getBoundingClientRect().height ?? 0) / 2,
+    );
+    zoomTo(view.scale * factor, centre.x, centre.y);
+  };
+
   const handlePointerDown = (event: React.PointerEvent, id: string) => {
+    event.stopPropagation();
     const point = toLocal(event.clientX, event.clientY);
     const node = positions[id];
     if (!node) return;
@@ -152,13 +308,33 @@ export default function GraphCanvas({
   return (
     <div ref={wrapRef} className="bg-plate">
       <svg
-        ref={svgRef}
-        viewBox={`0 0 ${width} ${height}`}
-        className="w-full touch-none"
+        ref={attachWheelZoom}
+        viewBox={`${view.x} ${view.y} ${width / view.scale} ${height / view.scale}`}
+        className={`w-full touch-none select-none ${panning ? "cursor-grabbing" : "cursor-grab"}`}
         style={{ height }}
-        onPointerMove={handlePointerMove}
-        onPointerUp={() => (dragRef.current = null)}
-        onPointerLeave={() => (dragRef.current = null)}
+        tabIndex={-1}
+        focusable="false"
+        // The plate is a picture, not a control surface. Without this the
+        // browser can hand arrow-key scrolling to a focused SVG, which looks
+        // like the graph quietly panning itself.
+        onKeyDown={(e) => {
+          if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", " "].includes(e.key)) {
+            e.preventDefault();
+          }
+        }}
+        onPointerDown={handlePanStart}
+        onPointerMove={(e) => {
+          handlePointerMove(e);
+          handlePanMove(e);
+        }}
+        onPointerUp={() => {
+          dragRef.current = null;
+          stopPan();
+        }}
+        onPointerLeave={() => {
+          dragRef.current = null;
+          stopPan();
+        }}
         role="img"
         aria-label={`Dependency graph with ${nodes.length} nodes and ${edges.length} edges`}
       >
@@ -200,6 +376,8 @@ export default function GraphCanvas({
               key={node.id}
               transform={`translate(${node.x}, ${node.y})`}
               className="cursor-grab"
+              tabIndex={-1}
+              focusable="false"
               onPointerDown={(e) => handlePointerDown(e, node.id)}
               onClick={() => onSelect?.(focused ? null : node.id)}
               opacity={dimmed ? 0.26 : 1}
@@ -239,8 +417,42 @@ export default function GraphCanvas({
             {type}
           </span>
         ))}
-        <span className="ml-auto font-ui text-[0.68rem] text-plate-rule/70">
-          drag to rearrange · click a node to focus
+        <span className="ml-auto flex items-center gap-3">
+          <span className="font-ui text-[0.68rem] text-plate-rule/70">
+            drag to pan · scroll to zoom · click a node to focus
+          </span>
+          <span className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => zoomByStep(1 / 1.4)}
+              aria-label="Zoom out"
+              className="border border-plate-rule px-1.5 py-0.5 font-mono text-[0.7rem] text-plate-rule transition hover:border-plate-rule hover:text-white"
+            >
+              −
+            </button>
+            <span className="min-w-[3ch] text-center font-mono text-[0.65rem] text-plate-rule/70">
+              {Math.round(view.scale * 100)}%
+            </span>
+            <button
+              type="button"
+              onClick={() => zoomByStep(1.4)}
+              aria-label="Zoom in"
+              className="border border-plate-rule px-1.5 py-0.5 font-mono text-[0.7rem] text-plate-rule transition hover:border-plate-rule hover:text-white"
+            >
+              +
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setView({ x: 0, y: 0, scale: 1 });
+                setDragged({});
+              }}
+              aria-label="Reset view"
+              className="border border-plate-rule px-1.5 py-0.5 font-mono text-[0.68rem] text-plate-rule transition hover:border-plate-rule hover:text-white"
+            >
+              reset
+            </button>
+          </span>
         </span>
       </div>
     </div>
