@@ -13,11 +13,31 @@ Built for Graph Hacks.
 live in one graph; the agent answers questions across all of it and cites the specific
 records behind each claim.
 
-## Watch the demo
+## The demo
 
 <video src="https://raw.githubusercontent.com/Harsh-0986/OrgMemory/main/demo.mp4" controls width="100%"></video>
 
----
+51 seconds, 1080p. The seeded company is fictional ("Northwind Logistics"). The
+question the video asks, and the answer it produces:
+
+> *"Can we replace Payment Service A with Payment Service B? What could break, who
+> should review it, and why do we use the current service?"*
+
+The answer comes back with:
+
+- **8 downstream services across 3 hops**, with the shortest path from each — Checkout,
+  Invoice and Order sit directly behind Payment Service A; Storefront is three hops out
+  through Cart and Checkout.
+- **The owners of each**, derived from `OWNS` edges, not from a guess.
+- **Four architecture decisions**, including one marked `superseded` — the graph shows
+  the organisation already decided to move off this processor.
+- **A gap the agent must not paper over**: Payment Service A depends on
+  `svc-identity`; Payment Service B does not. Nothing in the graph explains why.
+- **An incident with no recorded cause**, which is reported as unknown rather than
+  attributed to anyone.
+
+Then ask a follow-up — *"Who should review the Payment Service A replacement?"* — and the
+agent recalls the first investigation from graph memory.
 
 ## The problem
 
@@ -107,28 +127,7 @@ uv run pytest -m integration   # only the tests that need a live FalkorDB
 
 ---
 
-## The demo
-
-> *"Can we replace Payment Service A with Payment Service B? What could break, who
-> should review it, and why do we use the current service?"*
-
-The seeded company is fictional ("Northwind Logistics"). The answer comes back with:
-
-- **8 downstream services across 3 hops**, with the shortest path from each — Checkout,
-  Invoice and Order sit directly behind Payment Service A; Storefront is three hops out
-  through Cart and Checkout.
-- **The owners of each**, derived from `OWNS` edges, not from a guess.
-- **Four architecture decisions**, including one marked `superseded` — the graph shows
-  the organisation already decided to move off this processor.
-- **A gap the agent must not paper over**: Payment Service A depends on
-  `svc-identity`; Payment Service B does not. Nothing in the graph explains why.
-- **An incident with no recorded cause**, which is reported as unknown rather than
-  attributed to anyone.
-
-Then ask a follow-up — *"Who should review the Payment Service A replacement?"* — and the
-agent recalls the first investigation from graph memory.
-
-### More questions worth trying
+## More questions worth trying
 
 | Question | What it demonstrates |
 |---|---|
