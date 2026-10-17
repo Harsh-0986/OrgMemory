@@ -105,6 +105,10 @@ uv run pytest -m integration   # only the tests that need a live FalkorDB
 
 ## The demo
 
+**Watch it:** [`Recording_10_17_2026_11_57_31_AM.mp4`](Recording_10_17_2026_11_57_31_AM.mp4) — 51 seconds, 1080p.
+
+Ask the question below and follow the answer through the graph.
+
 > *"Can we replace Payment Service A with Payment Service B? What could break, who
 > should review it, and why do we use the current service?"*
 
