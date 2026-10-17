@@ -105,7 +105,11 @@ uv run pytest -m integration   # only the tests that need a live FalkorDB
 
 ## The demo
 
-**Watch it:** [`Recording_10_17_2026_11_57_31_AM.mp4`](Recording_10_17_2026_11_57_31_AM.mp4) — 51 seconds, 1080p.
+**Watch it:** [`demo.mp4`](demo.mp4) — 51 seconds, 1080p.
+
+<video src="https://github.com/Harsh-0986/OrgMemory/raw/main/demo.mp4" width="720" controls></video>
+
+If the player does not load, [download it directly](demo.mp4).
 
 Ask the question below and follow the answer through the graph.
 
