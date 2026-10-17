@@ -216,12 +216,33 @@ system uses as its primary key.
 
 **Relationships**
 
-```
-(Person)   -[:OWNS]->      (Service)      (Incident) -[:CAUSED_BY]-> (Service)
-(Person)   -[:WORKED_ON]-> (Project)      (Person)   -[:RESOLVED]->  (Incident)
-(Project)  -[:USES]->      (Service)      (Decision) -[:AFFECTS]->   (Service)
-(Service)  -[:DEPENDS_ON]->(Service)      (Decision) -[:SUPERSEDES]->(Decision)
-(Incident) -[:AFFECTED]->  (Service)      (Document) -[:DESCRIBES]-> (Service)
+| From | Relationship | To |
+| --- | --- | --- |
+| `Person` | `OWNS` | `Service` |
+| `Person` | `WORKED_ON` | `Project` |
+| `Person` | `RESOLVED` | `Incident` |
+| `Project` | `USES` | `Service` |
+| `Service` | `DEPENDS_ON` | `Service` |
+| `Incident` | `AFFECTED` | `Service` |
+| `Incident` | `CAUSED_BY` | `Service` |
+| `Decision` | `AFFECTS` | `Service` |
+| `Decision` | `SUPERSEDES` | `Decision` |
+| `Document` | `DESCRIBES` | `Service` |
+| `Investigation` | `CITED` | `Service`, `Person`, `Incident`, `Decision`, `Document` |
+
+Read as Cypher:
+
+```cypher
+(Person)      -[:OWNS]->       (Service)
+(Person)      -[:WORKED_ON]->  (Project)
+(Person)      -[:RESOLVED]->   (Incident)
+(Project)     -[:USES]->       (Service)
+(Service)     -[:DEPENDS_ON]-> (Service)
+(Incident)    -[:AFFECTED]->   (Service)
+(Incident)    -[:CAUSED_BY]->  (Service)
+(Decision)    -[:AFFECTS]->    (Service)
+(Decision)    -[:SUPERSEDES]-> (Decision)
+(Document)    -[:DESCRIBES]->  (Service)
 (Investigation) -[:CITED]-> {Service, Person, Incident, Decision, Document}
 ```
 
