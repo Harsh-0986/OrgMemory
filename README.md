@@ -31,6 +31,8 @@ not sentences to rank.
 
 ## Quick start
 
+> New here? **[SETUP.md](SETUP.md)** is the step-by-step version, with troubleshooting.
+
 Requires **Python 3.12**, **Node 20.9+**, and a free [FalkorDB Cloud](https://app.falkordb.cloud)
 instance. No Docker.
 
