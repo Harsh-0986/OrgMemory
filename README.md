@@ -1,3 +1,6 @@
+
+
+
 # OrgMemory
 
 **Your company's knowledge, connected and explainable.**
@@ -14,7 +17,7 @@ live in one graph; the agent answers questions across all of it and cites the sp
 records behind each claim.
 
 ## The demo
-[Demo Video](https://drive.google.com/file/d/1nuTVLAnBcs5fIz-IUBNwbGMOEe3xjBdb/view?usp=sharing)
+https://github.com/user-attachments/assets/dc6b08b9-20e0-47f1-9977-0f40aab8a1b9
 
 The seeded company is fictional ("Northwind Logistics"). The
 question the video asks, and the answer it produces:
