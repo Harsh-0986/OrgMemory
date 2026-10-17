@@ -402,6 +402,3 @@ deploy as-is on any container platform. Two things to set in production:
 All data in this repository is **synthetic**. The company, its people, services,
 incidents and decisions are invented for demonstration, and source URIs point at a
 reserved example domain.
-
-Built with AI coding assistance (OpenCode). The design, architecture, dataset and test
-strategy are described above; the code was written and reviewed with an AI assistant.
