@@ -43,4 +43,3 @@ next-env.d.ts
 SESSION_DUMP.md
 
 # Screen recordings — upload to YouTube/Vimeo/Loom, not the repo
-*.mp4
