@@ -14,10 +14,9 @@ live in one graph; the agent answers questions across all of it and cites the sp
 records behind each claim.
 
 ## The demo
+[Demo Video](https://drive.google.com/file/d/1nuTVLAnBcs5fIz-IUBNwbGMOEe3xjBdb/view?usp=sharing)
 
-<video src="https://raw.githubusercontent.com/Harsh-0986/OrgMemory/main/demo.mp4" controls width="100%"></video>
-
-51 seconds, 1080p. The seeded company is fictional ("Northwind Logistics"). The
+The seeded company is fictional ("Northwind Logistics"). The
 question the video asks, and the answer it produces:
 
 > *"Can we replace Payment Service A with Payment Service B? What could break, who
