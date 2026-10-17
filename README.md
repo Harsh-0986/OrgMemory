@@ -171,7 +171,7 @@ agent recalls the first investigation from graph memory.
 └───────┬──────────────────────────────────────────────────────────┘
         ▼
 ┌──────────────────────────────────────────────────────────────────┐
-│  FalkorDB  — 7 node labels · 11 relationship types               │
+│  FalkorDB  — 7 node labels · 12 relationship types               │
 │  people · services · projects · incidents · decisions            │
 │  · documents · investigations                                    │
 └──────────────────────────────────────────────────────────────────┘
@@ -228,22 +228,38 @@ system uses as its primary key.
 | `Decision` | `AFFECTS` | `Service` |
 | `Decision` | `SUPERSEDES` | `Decision` |
 | `Document` | `DESCRIBES` | `Service` |
+| `Document` | `SUPPORTS` | `Decision`, `Incident` |
 | `Investigation` | `CITED` | `Service`, `Person`, `Incident`, `Decision`, `Document` |
 
-Read as Cypher:
+The same schema as a graph:
 
-```cypher
-(Person)      -[:OWNS]->       (Service)
-(Person)      -[:WORKED_ON]->  (Project)
-(Person)      -[:RESOLVED]->   (Incident)
-(Project)     -[:USES]->       (Service)
-(Service)     -[:DEPENDS_ON]-> (Service)
-(Incident)    -[:AFFECTED]->   (Service)
-(Incident)    -[:CAUSED_BY]->  (Service)
-(Decision)    -[:AFFECTS]->    (Service)
-(Decision)    -[:SUPERSEDES]-> (Decision)
-(Document)    -[:DESCRIBES]->  (Service)
-(Investigation) -[:CITED]-> {Service, Person, Incident, Decision, Document}
+<!-- GitHub renders the mermaid fence below as a diagram. A Cypher code fence
+     only ever syntax-highlights, which is why the previous version of this
+     block never drew as a graph. Keep the info string as mermaid. -->
+
+```mermaid
+flowchart LR
+  Person["Person"]
+  Project["Project"]
+  Service["Service"]
+  Incident["Incident"]
+  Decision["Decision"]
+  Document["Document"]
+  Investigation["Investigation"]
+
+  Person -->|OWNS| Service
+  Person -->|WORKED_ON| Project
+  Person -->|RESOLVED| Incident
+  Project -->|USES| Service
+  Service -->|DEPENDS_ON| Service
+  Incident -->|AFFECTED| Service
+  Incident -->|CAUSED_BY| Service
+  Decision -->|AFFECTS| Service
+  Decision -->|SUPERSEDES| Decision
+  Document -->|DESCRIBES| Service
+  Document -->|SUPPORTS| Decision
+  Document -->|SUPPORTS| Incident
+  Investigation -->|CITED| Cited["services, people, incidents, decisions, documents"]
 ```
 
 `CAUSED_BY` is asserted **only** where the source material supports it. The seed
