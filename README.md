@@ -109,7 +109,9 @@ uv run pytest -m integration   # only the tests that need a live FalkorDB
 
 <video src="https://github.com/Harsh-0986/OrgMemory/raw/main/demo.mp4" width="720" controls></video>
 
-If the player does not load, [download it directly](demo.mp4).
+If your viewer doesn't play the tag above, [download `demo.mp4`](demo.mp4) directly.
+
+[![Demo: the answer, blast radius and dependency graph](docs/images/demo-poster.png)](demo.mp4)
 
 Ask the question below and follow the answer through the graph.
 
