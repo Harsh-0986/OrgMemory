@@ -16,7 +16,6 @@ records behind each claim.
 ## Watch the demo
 
 <video src="https://raw.githubusercontent.com/Harsh-0986/OrgMemory/main/demo.mp4" controls width="100%"></video>
-[![Demo: the answer, blast radius and dependency graph](docs/images/demo-poster.png)](demo.mp4)
 
 ---
 
