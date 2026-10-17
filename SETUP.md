@@ -35,19 +35,6 @@ else will start.
 
 Write those four values down — you need them in Step 2.
 
-<details>
-<summary>Prefer to run FalkorDB locally instead?</summary>
-
-```bash
-docker pull falkordb/falkordb:latest
-docker run -d --name falkordb -p 6379:6379 -p 3000:3000 falkordb/falkordb:latest
-```
-
-Then use `FALKORDB_HOST=localhost`, `FALKORDB_PORT=6379`, and leave the username and
-password blank. Note that local Docker and the free cloud tier are mutually exclusive
-under one `.env` — switching means editing those values.
-</details>
-
 ---
 
 ## Step 2 — Configure
