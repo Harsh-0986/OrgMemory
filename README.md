@@ -9,6 +9,10 @@ material claim.
 
 Built for Graph Hacks.
 
+**Track entered: 03 — Company Brain.** People, teams, projects, documents and decisions
+live in one graph; the agent answers questions across all of it and cites the specific
+records behind each claim.
+
 ---
 
 ## The problem
@@ -31,7 +35,7 @@ Requires **Python 3.12**, **Node 20.9+**, and a free [FalkorDB Cloud](https://ap
 instance. No Docker.
 
 ```bash
-git clone <your-repo-url> orgmemory
+git clone https://github.com/YOUR-USERNAME/orgmemory.git   # ← replace before publishing
 cd orgmemory
 
 cp .env.example .env      # then fill in the values below
@@ -91,7 +95,7 @@ Open <http://localhost:3000> and click **The primary demo**.
 
 ```bash
 cd backend
-uv run pytest                  # 120 tests
+uv run pytest                  # 218 tests
 uv run pytest -m integration   # only the tests that need a live FalkorDB
 ```
 
@@ -227,6 +231,96 @@ saying so.
 
 ---
 
+## The Cypher the product depends on
+
+All 28 templates live in [`backend/app/graph/queries.py`](backend/app/graph/queries.py)
+and are the only strings the agent's tools can execute — the agent never writes Cypher,
+it picks from this set. These are the load-bearing ones.
+
+**Impact traversal** — "what breaks if we change this?". `DEPENDS_ON` is followed
+*backwards*, since `(A)-[:DEPENDS_ON]->(B)` means A breaks if B breaks. `min(length(p))`
+collapses the many paths to one node down to its shortest hop count.
+
+```cypher
+MATCH p = (impacted:Service)-[:DEPENDS_ON*1..3]->(target:Service {id: $service_id})
+WITH impacted, min(length(p)) AS depth
+RETURN impacted.id AS id, impacted.name AS name,
+       impacted.criticality AS criticality, depth
+ORDER BY depth ASC, impacted.criticality ASC, id ASC
+LIMIT $limit
+```
+
+**Shared dependencies** — the real migration risk: infrastructure both the old and new
+service depend on, which must support both paths at once.
+
+```cypher
+MATCH (a:Service)-[:DEPENDS_ON]->(shared:Service)<-[:DEPENDS_ON]-(b:Service)
+RETURN shared.id AS id, shared.name AS name, count(*) AS shared_by
+```
+
+**Who knows this system** — two-hop traversal across projects and incidents, unioned
+into one ranked reviewer list.
+
+```cypher
+MATCH (person:Person)-[:WORKED_ON]->(project:Project)-[:USES]->(service:Service {id: $service_id})
+RETURN person.id AS person_id, person.name AS person_name,
+       person.role AS person_role, project.name AS project_name
+UNION
+MATCH (person:Person)-[:RESOLVED]->(incident:Incident)-[:AFFECTED]->(service:Service {id: $service_id})
+RETURN person.id AS person_id, person.name AS person_name,
+       person.role AS person_role, incident.title AS project_name
+LIMIT $limit
+```
+
+**Supersession chains** — "why do we use this?" becomes a question whose answer includes
+its own replacement.
+
+```cypher
+MATCH (decision:Decision)-[:AFFECTS]->(service:Service {id: $service_id})
+OPTIONAL MATCH (superseding:Decision)-[:SUPERSEDES]->(decision)
+RETURN decision.id, decision.title, decision.rationale,
+       decision.status, superseding.title AS superseded_by
+```
+
+**Structured absence** — the missing `CAUSED_BY` edge is itself a returned fact. The
+`OPTIONAL MATCH` leaves `cause` null and `root_cause_known` false, which the writer
+turns into an explicit "we don't know why this happened" rather than a guess.
+
+```cypher
+MATCH (incident:Incident)-[:AFFECTED]->(service:Service {id: $service_id})
+OPTIONAL MATCH (incident)-[:CAUSED_BY]->(cause:Service)
+OPTIONAL MATCH (resolver:Person)-[:RESOLVED]->(incident)
+RETURN incident.id, incident.title, incident.severity,
+       incident.root_cause_known, cause.name AS cause
+```
+
+**Provenance as structure** — an answer's citations are written back as
+`(Investigation)-[:CITED]->` edges, so a later session can traverse from a past answer
+into the services and people it touched. History is part of the graph, not a log table.
+
+```cypher
+MATCH (inv:Investigation {id: $investigation_id})
+UNWIND $citations AS citation
+MATCH (target {id: citation.id})
+MERGE (inv)-[:CITED {quote: citation.quote}]->(target)
+```
+
+**Cross-session recall** — how a follow-up question reaches a past investigation.
+
+```cypher
+MATCH (inv:Investigation)-[:CITED]->(cited {id: $entity_id})
+RETURN inv.id, inv.question, inv.answer, inv.created_at
+ORDER BY inv.created_at DESC
+LIMIT $limit
+```
+
+> **Note on the traversal bound.** `[:DEPENDS_ON*1..$max_depth]` is rejected by FalkorDB
+> with *"Encountered unhandled type in inlined properties"* — a variable is not allowed
+> inside a variable-length range. `build()` therefore interpolates a Python `int` it
+> clamps first, so no caller-supplied string can reach the query text.
+
+---
+
 ## Grounding rules
 
 These are enforced in code, tested, and visible in the UI:
@@ -253,12 +347,12 @@ citations and the reasoning trace. It says which writer produced it.
 ```
 backend/
   app/
-    graph/       connection · schema · queries (the 14 Cypher templates) · repository
+    graph/       connection · schema · queries (the 28 Cypher templates) · repository
     agent/       state · tools (the allowlist) · nodes · prompts · graph (LangGraph)
     api/         routes · error envelope · dependencies
     seed/        the synthetic company + repeatable seeder
     models/      domain types carrying provenance
-  tests/         120 tests, no model calls, optional live-DB integration tests
+  tests/         218 tests, no model calls, optional live-DB integration tests
 frontend/
   app/           dashboard
   components/    answer · evidence · graph · impact · trace · history
