@@ -35,8 +35,8 @@ Requires **Python 3.12**, **Node 20.9+**, and a free [FalkorDB Cloud](https://ap
 instance. No Docker.
 
 ```bash
-git clone https://github.com/YOUR-USERNAME/orgmemory.git   # ← replace before publishing
-cd orgmemory
+git clone https://github.com/Harsh-0986/OrgMemory.git
+cd OrgMemory
 
 cp .env.example .env      # then fill in the values below
 ```

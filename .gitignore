@@ -39,3 +39,5 @@ next-env.d.ts
 
 # ---- Tooling artefacts ----------------------------------------------------
 .playwright-mcp/
+# local-only working notes
+SESSION_DUMP.md
