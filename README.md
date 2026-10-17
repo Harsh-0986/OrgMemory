@@ -12,9 +12,24 @@ material claim.
 
 Built for Graph Hacks.
 
-**Track entered: 03 — Company Brain.** People, teams, projects, documents and decisions
-live in one graph; the agent answers questions across all of it and cites the specific
-records behind each claim.
+**Tracks entered: 03 — Company Brain (primary) and 01 — Agents That Act on Connected
+Data.**
+
+**03 — Company Brain.** People, teams, projects, documents and decisions live in one
+graph; the agent answers questions across all of it and cites the specific records
+behind each claim. A document ingest pipeline keeps that graph current, `OWNS` and the
+`WORKED_ON → USES` traversal answer *who owns this* and *who knows about this*, and
+`SUPERSEDES` chains trace a decision back to the decision that replaced it.
+
+**01 — Agents That Act on Connected Data.** The agent selects from a fixed set of graph
+queries as tools and acts on what they return: an impact verdict, a named reviewer set,
+and next steps, with every claim audited against the records the run actually
+retrieved. Multi-hop traversal and explainable output are the load-bearing parts.
+
+*On MCP:* the tool boundary is an explicit 28-template allowlist the agent chooses
+between (`backend/app/agent/tools.py`) rather than an MCP server. The isolation
+property is the same — the agent cannot compose its own Cypher — but the protocol
+itself is not implemented.
 
 ## The demo
 https://github.com/user-attachments/assets/dc6b08b9-20e0-47f1-9977-0f40aab8a1b9
